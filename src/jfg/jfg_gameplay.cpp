@@ -1,3 +1,4 @@
+#include "jfg_xr_game.h"
 // Jet Force Gemini port: gameplay options for the game hooks - no blood, damage taken, jetpack refuelling, the sniper
 // rifle, unlimited continues and the Tribal check.
 #include <algorithm>
@@ -179,6 +180,7 @@ JFG_WRAP(controlGetManualAim) {
     if (g_aim.direct(ctx)) sniper_walk_restore(rdram);
     const uint32_t data = (uint32_t)ctx->r5;
     controlGetManualAim_orig(rdram, ctx);
+    jfg::jfg_xr_aim(data);
     if (data < 0x80000400u || data >= 0x80800000u) return;
     const float zoom = jfg::PlayerData::AimZoom::get(rdram, data);
     const float fixed = jfg_sniper_zoom(zoom);

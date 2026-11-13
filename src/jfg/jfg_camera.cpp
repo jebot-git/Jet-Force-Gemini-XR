@@ -1,3 +1,4 @@
+#include "jfg_xr_game.h"
 // Jet Force Gemini port: the camera - the dual-stick camera swung round the character, the over-the-shoulder aiming
 // view, the boss-fight camera turn and the fly camera (F7). What moves it (sticks, mouse) is in jfg_controls.cpp.
 #include <algorithm>
@@ -138,6 +139,7 @@ void camera_collide(recomp_context* ctx, float fx, float fy, float fz, float& tx
 // Right before the scene is drawn: move the camera round the character to the chosen angles.
 extern "C" void jfg_camera_override(uint8_t* rdram_, recomp_context* ctx) {
     g_rdram = rdram_;
+    if (jfg_xr_camera(ctx)) return;
     fov_refresh();
     if (g_fly.active && g_fly.started && !g_cam.overridden) {
         const uint32_t cam = ADDR_cameraActorArray + Camera::Size * (rd32(ADDR_cameraNo) & 3u);

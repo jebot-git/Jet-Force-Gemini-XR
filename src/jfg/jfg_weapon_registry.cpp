@@ -1,3 +1,4 @@
+#include "jfg_xr_game.h"
 // Jet Force Gemini port: the weapon registry - weapons beyond the game's own, for mods (mod API version 6).
 //
 // The game has 16 weapon slots and no room for more: a character's owned weapons are a u16 mask (+0x0A), its ammo,
@@ -493,6 +494,7 @@ JFG_WRAP(func_overlay_18_00001294_1F30C6C) { screen_step(rdram, ctx, -1, func_ov
 // The fire code (obj, player): jfg_on_weapon_fire, then a carried weapon fires as its host. JfgWeaponFire: s32 weapon,
 // character; void* hero; s32 charge, cancel, take_ammo.
 JFG_WRAP(func_800386B0_392B0) {
+    jfg::jfg_xr_aim((uint32_t)ctx->r5);
     const int hero = current_hero();
     const uint32_t ch = hero >= 0 ? character_ptr(hero) : 0;
     if (!valid_ptr(ch)) {

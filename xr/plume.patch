@@ -1,0 +1,29 @@
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index 480a1d7..5499e51 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -1,3 +1,5 @@
++#include <sstream>
++extern "C" const char* jfg_xr_vk_extensions(int);
+ //
+ // plume
+ //
+@@ -4044,6 +4046,10 @@ namespace plume {
+             enabledExtensions.push_back(extension.c_str());
+         }
+ 
++        std::vector<std::string> xrExtensions;
++        { std::istringstream input(jfg_xr_vk_extensions(1)); std::string name;
++          while(input >> name) { bool found=false; for(auto e:enabledExtensions) if(name==e)found=true; if(!found)xrExtensions.push_back(name); } }
++        for(auto &name:xrExtensions)enabledExtensions.push_back(name.c_str());
+         VkDeviceCreateInfo createInfo = {};
+         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+         createInfo.pNext = createDeviceChain;
+@@ -4499,6 +4505,7 @@ namespace plume {
+         vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data());
+ 
+         std::unordered_set<std::string> requiredExtensions = RequiredInstanceExtensions;
++        { std::istringstream input(jfg_xr_vk_extensions(0)); std::string name; while(input >> name)requiredExtensions.insert(name); }
+         std::unordered_set<std::string> supportedOptionalExtensions;
+ #   if DLSS_ENABLED
+         const std::unordered_set<std::string> dlssExtensions = DLSS::getRequiredInstanceExtensionsVulkan();

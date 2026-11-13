@@ -1,3 +1,4 @@
+#include "jfg_xr_game.h"
 // Jet Force Gemini port: the JFG mod API (mod_api/jfg_api.h for mods, jfg_api.h for the port).
 #include <algorithm>
 #include <atomic>
@@ -422,6 +423,7 @@ static bool fire_value_cancel(uint8_t* rdram, recomp_context* ctx, jfg::api::Eve
 // the interpolation's bookkeeping around it (jfg_interpolation.cpp).
 JFG_WRAP(objPrintObject) {
     uint32_t object = (uint32_t)ctx->r7;
+    if (jfg::jfg_xr_hide(object)) return;
     if (!fire_value_cancel(rdram, ctx, jfg::api::Event::ObjectDraw, object)) return;
     ctx->r7 = (gpr)(int32_t)object;
     // The interpolation's bookkeeping starts before jfg_on_object_draw_gfx, so the matrices a mod's own drawing pushes

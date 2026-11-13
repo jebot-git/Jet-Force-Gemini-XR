@@ -1,3 +1,4 @@
+#include "jfg_xr_game.h"
 // Jet Force Gemini port: dual-stick, mouse and keyboard controls, the aiming options and the boss-fight controls.
 //
 // A mod, off by default. The game's own layout is from 1999: the stick runs forward/back and turns the character, the
@@ -626,6 +627,7 @@ static void aim_at_screen_centre(recomp_context* ctx, uint32_t obj, uint32_t pad
 // Game thread, right after joyRead. Decides whether the right stick owns the camera this tick, advances the camera
 // angles, turns the character and rewrites the game's stick value.
 void jfg_camera_controls(recomp_context* ctx) {
+    if (jfg_xr_controls(ctx)) return;
     static bool signs_read = false;
     if (!signs_read) {
         signs_read = true;

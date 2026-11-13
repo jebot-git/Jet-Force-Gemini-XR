@@ -375,3 +375,13 @@ set_property(TARGET JetForceGeminiRecompiled PROPERTY VS_DEBUGGER_WORKING_DIRECT
 # bytes tools/prepare_overlays.py gave the recompiler; run by build_windows.bat and build_linux.sh.
 add_executable(jfg_prelink_check ${CMAKE_SOURCE_DIR}/tools/prelink_check.cpp ${CMAKE_SOURCE_DIR}/src/jfg/jfg_prelink.cpp)
 target_include_directories(jfg_prelink_check PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Linux OpenXR prototype. The pinned RT64/plume changes are stored as patches in xr/.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(OPENXR REQUIRED IMPORTED_TARGET openxr)
+  target_sources(rt64 PRIVATE ${CMAKE_SOURCE_DIR}/xr/jfg_xr.cpp)
+  target_include_directories(rt64 PUBLIC ${CMAKE_SOURCE_DIR}/xr)
+  target_link_libraries(rt64 PkgConfig::OPENXR)
+  target_include_directories(JetForceGeminiRecompiled PRIVATE ${CMAKE_SOURCE_DIR}/xr)
+endif()
