@@ -417,6 +417,7 @@ JFG_HUD_PIECE(func_overlay_14_00000220_1F0DB78, jfg::jfg_hud_middle)       // th
 JFG_HUD_PIECE(func_overlay_14_00000074_1F0D9CC, jfg::jfg_hud_middle)       // the arrows at the screen's sides
 #undef JFG_HUD_PIECE
 
+
 // The weapon panel (func_overlay_14_0000292C, with the message, objective and selector panels it draws): a HUD piece on
 // the left, which a mod can take over (jfg_on_weapon_hud) and whose weapon icons it can place (jfg_weapon_hud.cpp).
 bool jfg_weapon_hud_event(uint8_t* rdram, recomp_context* ctx); // jfg_weapon_hud.cpp

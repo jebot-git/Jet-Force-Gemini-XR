@@ -39,7 +39,7 @@ extern "C" int jfg_refresh_override(void);   // src/jfg/jfg_frame_rate.cpp: "Fra
 #include "config/config.hpp"
 #include "debug_ui/debug_ui.hpp"
 #include "debug_ui/backend.hpp"
-#include "ui/recomp_ui.h"
+#include "runtime/xr_compat.hpp"
 #include "concurrentqueue.h"
 
 static RT64::UserConfiguration::Antialiasing device_max_msaa = RT64::UserConfiguration::Antialiasing::None;
@@ -298,26 +298,9 @@ ultramodern::renderer::GraphicsApi map_graphics_api(RT64::UserConfiguration::Gra
 RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool debug) {
     fprintf(stderr, "[JFG] Initializing RT64 renderer\n");
     static unsigned char dummy_rom_header[0x40];
-#if !defined(__APPLE__)
-    // The inherited developer-only ImGui overlay has D3D12 and Vulkan
-    // backends, but no Metal backend. The regular RmlUi launcher and menus
-    // have their own renderer and remain enabled on macOS.
-    // JFG PORT: hooks draw in the order added. The ImGui layer (mods' overlay shapes, the port's toasts, F9's window)
-    // goes first so the RmlUi menus and F10's tools are drawn over it, not under a mod's HUD.
-    debug_ui::backend::set_render_hooks();
-#endif
-    recompui::set_render_hooks();
-
     // Set up the RT64 application core fields.
     RT64::Application::Core appCore{};
-#if defined(_WIN32)
-    appCore.window = window_handle.window;
-#elif defined(__linux__) || defined(__ANDROID__)
-    appCore.window = window_handle;
-#elif defined(__APPLE__)
-    appCore.window.window = window_handle.window;
-    appCore.window.view = window_handle.view;
-#endif
+    appCore.window = {};
 
     appCore.checkInterrupts = dummy_check_interrupts;
 
@@ -364,7 +347,7 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
     // Set initial user config settings based on the current settings.
     auto& cur_config = ultramodern::renderer::get_graphics_config();
     set_application_user_config(app.get(), cur_config);
-    app->userConfig.developerMode = debug;
+    app->userConfig.developerMode = false;
     // Force gbi depth branches to prevent LODs from kicking in.
     app->enhancementConfig.f3dex.forceBranch = true;
     // Scale LODs based on the output resolution.
@@ -372,21 +355,7 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
     // Don't try to fix rectangle lower-right coords (kept from the base project, where the fix stretched glyph
     // rects drawn on the edge of a scissor down by a pixel; not checked for Jet Force Gemini).
     app->enhancementConfig.rect.fixRectLR = false;
-    // Pick an API if the user has set an override.
-    switch (cur_config.api_option) {
-        case ultramodern::renderer::GraphicsApi::D3D12:
-            app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::D3D12;
-            break;
-        case ultramodern::renderer::GraphicsApi::Vulkan:
-            app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Vulkan;
-            break;
-        case ultramodern::renderer::GraphicsApi::Metal:
-            app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Metal;
-            break;
-        case ultramodern::renderer::GraphicsApi::Auto:
-            app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Automatic;
-            break;
-    }
+    app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Vulkan;
 
     // Set up the RT64 application.
     uint32_t thread_id = 0;
@@ -418,7 +387,7 @@ RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle win
     }
 
     // Set the application's fullscreen state.
-    app->setFullScreen(cur_config.wm_option == ultramodern::renderer::WindowMode::Fullscreen);
+    // OpenXR owns presentation; there is no desktop window/fullscreen state.
 
     // Check if the selected device actually supports MSAA sample positions and MSAA for for the formats that will be used
     // and downgrade the configuration accordingly.
@@ -553,9 +522,7 @@ bool RT64Context::update_config(const ultramodern::renderer::GraphicsConfig& old
         return false;
     }
 
-    if (new_config.wm_option != old_config.wm_option) {
-        app->setFullScreen(new_config.wm_option == ultramodern::renderer::WindowMode::Fullscreen);
-    }
+    // Window/fullscreen settings have no meaning in this OpenXR-only build.
 
     set_application_user_config(app.get(), new_config);
 

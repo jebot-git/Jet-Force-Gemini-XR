@@ -1,5 +1,31 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0789c20..c675d24 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -64,7 +64,7 @@ if(APPLE)
+         plume_apple.mm
+         plume_apple.h
+     )
+-elseif(WIN32)
++elseif(WIN32 AND NOT JFG_VULKAN_ONLY)
+     list(APPEND PLUME_SOURCES
+         plume_d3d12.cpp
+         plume_d3d12.h
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index 9dcfedf..3d169f1 100644
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -16,7 +16,7 @@
+ #include <cstdint>
+ 
+ #if defined(_WIN64)
+-#include <Windows.h>
++#include <windows.h>
+ #elif defined(__ANDROID__)
+ #include "android/native_window.h"
+ #elif defined(__linux__) && !defined(PLUME_SDL_VULKAN_ENABLED)
 diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
-index 480a1d7..5499e51 100644
+index 480a1d7..defc609 100644
 --- a/plume_vulkan.cpp
 +++ b/plume_vulkan.cpp
 @@ -1,3 +1,5 @@
@@ -8,7 +34,219 @@ index 480a1d7..5499e51 100644
  //
  // plume
  //
-@@ -4044,6 +4046,10 @@ namespace plume {
+@@ -9,6 +11,7 @@
+ #define VOLK_IMPLEMENTATION 
+ 
+ #include "plume_vulkan.h"
++#include <stdexcept>
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -43,21 +46,10 @@ namespace plume {
+ 
+     // Required extensions.
+ 
++    // Native OpenXR rendering requires no WSI surface extension.
+     static const std::unordered_set<std::string> RequiredInstanceExtensions = {
+-        VK_KHR_SURFACE_EXTENSION_NAME,
+ #   ifdef VULKAN_OBJECT_NAMES_ENABLED
+         VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+-#   endif
+-#   if defined(_WIN64)
+-        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+-#   elif defined(__ANDROID__)
+-        VK_KHR_ANDROID_SURFACE_EXTENSION_NAME,
+-#   elif defined(__linux__)
+-#   if !defined(PLUME_SDL_VULKAN_ENABLED)
+-        VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+-#   endif
+-#   elif defined(__APPLE__)
+-        VK_EXT_METAL_SURFACE_EXTENSION_NAME,
+ #   endif
+     };
+ 
+@@ -69,7 +61,7 @@ namespace plume {
+     };
+     
+     static const std::unordered_set<std::string> RequiredDeviceExtensions = {
+-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
++        // All presentation swapchains belong to the OpenXR runtime.
+     };
+     
+     static const std::unordered_set<std::string> OptionalDeviceExtensions = {
+@@ -2074,170 +2066,7 @@ namespace plume {
+     // VulkanSwapChain
+ 
+     VulkanSwapChain::VulkanSwapChain(VulkanCommandQueue *commandQueue, const RenderSwapChainDesc &desc) {
+-        assert(commandQueue != nullptr);
+-        assert(desc.textureCount > 0);
+-
+-        this->commandQueue = commandQueue;
+-        this->desc = desc;
+-
+-        VkResult res;
+-
+-#   ifdef _WIN64
+-        assert(desc.renderWindow != 0);
+-        VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
+-        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+-        surfaceCreateInfo.hwnd = HWND(desc.renderWindow);
+-        surfaceCreateInfo.hinstance = GetModuleHandle(nullptr);
+-
+-        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+-        res = vkCreateWin32SurfaceKHR(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "vkCreateWin32SurfaceKHR failed with error code 0x%X.\n", res);
+-            return;
+-        }
+-#   elif defined(PLUME_SDL_VULKAN_ENABLED)
+-        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+-        SDL_bool sdlRes = SDL_Vulkan_CreateSurface(desc.renderWindow, renderInterface->instance, &surface);
+-        if (sdlRes == SDL_FALSE) {
+-            fprintf(stderr, "SDL_Vulkan_CreateSurface failed with error %s.\n", SDL_GetError());
+-            return;
+-        }
+-#   elif defined(__ANDROID__)
+-        assert(desc.renderWindow != nullptr);
+-        VkAndroidSurfaceCreateInfoKHR surfaceCreateInfo = {};
+-        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR;
+-        surfaceCreateInfo.window = desc.renderWindow;
+-
+-        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+-        res = vkCreateAndroidSurfaceKHR(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "vkCreateAndroidSurfaceKHR failed with error code 0x%X.\n", res);
+-            return;
+-        }
+-#   elif defined(__linux__)
+-        assert(desc.renderWindow.display != 0);
+-        assert(desc.renderWindow.window != 0);
+-        VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {};
+-        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+-        surfaceCreateInfo.dpy = desc.renderWindow.display;
+-        surfaceCreateInfo.window = desc.renderWindow.window;
+-
+-        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+-        res = vkCreateXlibSurfaceKHR(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "vkCreateXlibSurfaceKHR failed with error code 0x%X.\n", res);
+-            return;
+-        }
+-#   elif defined(__APPLE__)
+-        assert(desc.renderWindow.window != 0);
+-        assert(desc.renderWindow.view != 0);
+-        // Creates a wrapper around the window for storing and fetching sizes.
+-        this->windowWrapper = std::make_unique<CocoaWindow>(desc.renderWindow.window);
+-        
+-        VkMetalSurfaceCreateInfoEXT surfaceCreateInfo = {};
+-        surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+-        surfaceCreateInfo.pLayer = desc.renderWindow.view;
+-
+-        VulkanInterface *renderInterface = commandQueue->device->renderInterface;
+-        res = vkCreateMetalSurfaceEXT(renderInterface->instance, &surfaceCreateInfo, nullptr, &surface);
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "vkCreateMetalSurfaceEXT failed with error code 0x%X.\n", res);
+-            return;
+-        }
+-#   endif
+-
+-        VkBool32 presentSupported = false;
+-        VkPhysicalDevice physicalDevice = commandQueue->device->physicalDevice;
+-        res = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, commandQueue->familyIndex, surface, &presentSupported);
+-        if (res != VK_SUCCESS) {
+-            fprintf(stderr, "vkGetPhysicalDeviceSurfaceSupportKHR failed with error code 0x%X.\n", res);
+-            return;
+-        }
+-
+-        if (!presentSupported) {
+-            fprintf(stderr, "Command queue does not support present.\n");
+-            return;
+-        }
+-
+-        VkSurfaceCapabilitiesKHR surfaceCapabilities = {};
+-        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
+-
+-        // Pick an alpha compositing mode
+-        if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+-            pickedAlphaFlag = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+-        }
+-        else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+-            pickedAlphaFlag = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+-        }
+-        else {
+-            fprintf(stderr, "No known supported alpha compositing mode\n");
+-            return;
+-        }
+-
+-        // Make sure maxImageCount is never below minImageCount, as it's allowed to be zero.
+-        surfaceCapabilities.maxImageCount = std::max(surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount);
+-
+-        // Clamp the requested buffer count between the bounds of the surface capabilities.
+-        this->desc.textureCount = std::clamp(desc.textureCount, surfaceCapabilities.minImageCount, surfaceCapabilities.maxImageCount);
+-
+-        uint32_t surfaceFormatCount = 0;
+-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &surfaceFormatCount, nullptr);
+-
+-        std::vector<VkSurfaceFormatKHR> surfaceFormats(surfaceFormatCount);
+-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &surfaceFormatCount, surfaceFormats.data());
+-
+-        uint32_t presentModeCount = 0;
+-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
+-
+-        std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, presentModes.data());
+-        immediatePresentModeSupported = std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_IMMEDIATE_KHR) != presentModes.end();
+-        mailboxPresentModeSupported = std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end();
+-
+-        // Check if the format we requested is part of the supported surface formats.
+-        std::vector<VkSurfaceFormatKHR> compatibleSurfaceFormats;
+-        VkFormat requestedFormat = toVk(desc.format);
+-        for (uint32_t i = 0; i < surfaceFormatCount; i++) {
+-            if (surfaceFormats[i].format == requestedFormat) {
+-                compatibleSurfaceFormats.emplace_back(surfaceFormats[i]);
+-                break;
+-            }
+-        }
+-
+-        if (compatibleSurfaceFormats.empty()) {
+-            fprintf(stderr, "No compatible surface formats were found.\n");
+-            return;
+-        }
+-
+-        // Pick the preferred color space, if not available, pick whatever first shows up on the list.
+-        for (const VkSurfaceFormatKHR &surfaceFormat : compatibleSurfaceFormats) {
+-            if (surfaceFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+-                pickedSurfaceFormat = surfaceFormat;
+-                break;
+-            }
+-        }
+-
+-        if (pickedSurfaceFormat.format == VK_FORMAT_UNDEFINED) {
+-            pickedSurfaceFormat = compatibleSurfaceFormats[0];
+-        }
+-
+-        // Sets the required presentation mode.
+-        setVsyncEnabled(true);
+-
+-        // Pick an alpha compositing mode, prefer opaque over inherit.
+-        if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+-            pickedAlphaFlag = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+-        }
+-        else if (surfaceCapabilities.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+-            pickedAlphaFlag = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+-        }
+-        else {
+-            fprintf(stderr, "No supported alpha compositing mode was found.\n");
+-            return;
+-        }
+-
+-        // Parent command queue should track this swap chain.
+-        commandQueue->swapChains.insert(this);
++        throw std::runtime_error("Desktop swapchains are unavailable; OpenXR owns presentation");
+     }
+ 
+     VulkanSwapChain::~VulkanSwapChain() {
+@@ -4044,6 +3873,10 @@ namespace plume {
              enabledExtensions.push_back(extension.c_str());
          }
  
@@ -19,7 +257,7 @@ index 480a1d7..5499e51 100644
          VkDeviceCreateInfo createInfo = {};
          createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
          createInfo.pNext = createDeviceChain;
-@@ -4499,6 +4505,7 @@ namespace plume {
+@@ -4499,6 +4332,7 @@ namespace plume {
          vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, availableExtensions.data());
  
          std::unordered_set<std::string> requiredExtensions = RequiredInstanceExtensions;

@@ -211,6 +211,10 @@ void draw_options() {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Controls")) {
+            options_section("XR Turning");
+            changed |= ImGui::Combo("XR turn mode", &g.xr_turn_mode, "Snap\0Smooth\0Off\0");
+            changed |= options_slider("XR snap angle (degrees)", &g.xr_snap_angle, 15, 90);
+            changed |= options_slider("XR smooth turn speed (deg/s)", &g.xr_turn_speed, 15, 360);
             options_section("Controller");
             ImGui::BeginDisabled(g.dual_stick);
             changed |= ImGui::Checkbox("Invert aim up/down (normal controls)", &g.invert_aim_normal);

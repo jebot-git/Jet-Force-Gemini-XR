@@ -134,15 +134,16 @@ if defined JFG_KEEP_LIBS (
     goto libs_ready
 )
 echo [jfg] fetching libraries ^(this is the slow part the first time^)...
-git -C "%WORK%" submodule update --init --recursive
-if errorlevel 1 ( echo [jfg] ERROR: submodule download failed & exit /b 1 )
+rem apply_xr_patches.py checks local commits before initializing submodules.
 :libs_ready
+%PY% "%WORK%\tools\apply_xr_patches.py" || exit /b 1
+%PY% "%WORK%\tools\prepare_xr_dependencies.py" --directory "%WORK%\.build-deps" || exit /b 1
 
 rem ---- 3. game code ----------------------------------------------------------
 if exist "%PORT_DIR%generated\RecompiledFuncs.tgz" goto use_pregenerated
 
 echo [jfg] building the recompiler tools...
-cmake -S "%WORK%\lib\N64Recomp" -B "%WORK%\build-tools" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl
+cmake -S "%WORK%\lib\N64Recomp" -B "%WORK%\build-tools" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DJFG_SDL_SOURCE="%WORK%\.build-deps\SDL2" -DJFG_OPENXR_SDK="%WORK%\.build-deps\OpenXR-SDK"
 if errorlevel 1 ( echo [jfg] ERROR: configuring the recompiler tools failed & exit /b 1 )
 cmake --build "%WORK%\build-tools" --parallel --target N64RecompCLI RSPRecomp
 if errorlevel 1 ( echo [jfg] ERROR: building the recompiler tools failed & exit /b 1 )
@@ -208,11 +209,10 @@ rem ---- 5. game folder --------------------------------------------------------
 rem Everything the game needs to run, in one place. Saves and settings are written here as well.
 if not exist "%BIN%" mkdir "%BIN%"
 copy /y "%WORK%\build-windows\JetForceGeminiRecompiled.exe" "%BIN%\" >nul || ( echo [jfg] ERROR: could not copy the executable to %BIN% - is the game still running? & exit /b 1 )
-copy /y "%WORK%\build-windows\*.dll" "%BIN%\" >nul || ( echo [jfg] ERROR: copying the DLLs failed & exit /b 1 )
-copy /y "%WORK%\recompcontrollerdb.txt" "%BIN%\" >nul || ( echo [jfg] ERROR: copying recompcontrollerdb.txt failed & exit /b 1 )
-xcopy "%WORK%\assets" "%BIN%\assets\" /e /i /y /q >nul || ( echo [jfg] ERROR: copying assets failed & exit /b 1 )
+copy /y "%WORK%\build-windows\openxr_loader.dll" "%BIN%\" >nul || ( echo [jfg] ERROR: copying the DLLs failed & exit /b 1 )
+if exist "%BIN%\assets" rmdir /s /q "%BIN%\assets"
+xcopy "%WORK%\assets\xr" "%BIN%\assets\xr\" /e /i /y /q >nul || ( echo [jfg] ERROR: copying assets failed & exit /b 1 )
 rem The changelog the launcher shows (About > Changelog) ships with the assets, so it also updates with the game.
-copy /y "%PORT_DIR%CHANGELOG.md" "%BIN%\assets\jfg_launcher\CHANGELOG.md" >nul || ( echo [jfg] ERROR: copying CHANGELOG.md failed & exit /b 1 )
 rem Empty folders for mods and texture packs (.rtz files or folders); existing ones, and what is in them, are left alone.
 if not exist "%BIN%\mods" mkdir "%BIN%\mods"
 if not exist "%BIN%\texture_packs" mkdir "%BIN%\texture_packs"

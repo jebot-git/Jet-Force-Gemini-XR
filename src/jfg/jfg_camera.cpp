@@ -1,3 +1,4 @@
+#include "jfg_xr.h"
 #include "jfg_xr_game.h"
 // Jet Force Gemini port: the camera - the dual-stick camera swung round the character, the over-the-shoulder aiming
 // view, the boss-fight camera turn and the fly camera (F7). What moves it (sticks, mouse) is in jfg_controls.cpp.
@@ -96,6 +97,10 @@ bool menu_paused() {
            rd32(ADDR_mainGameMode) == 0 && !in_cutscene();
 }
 extern "C" int jfg_freeze_world(void) {
+    const auto xrInput=jfgxr::input();
+    // The first rendered frame publishes input; do not pause boot before it.
+    if(xrInput.sequence && (!xrInput.active || !xrInput.focused))return 1;
+    if (jfg_xr_menu_open()) return 1;
     if (g_fly.active && g.fly_freeze) return 1;
     return menu_paused() ? 1 : 0;
 }

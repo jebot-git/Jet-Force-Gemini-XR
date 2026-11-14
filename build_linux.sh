@@ -84,11 +84,10 @@ fi
 BIN="$HERE/bin"
 mkdir -p "$BIN/icons"
 cp -f "$OUT/build-linux/JetForceGeminiRecompiled" "$BIN/"
-cp -f recompcontrollerdb.txt "$BIN/"
 cp -f icons/512.png "$BIN/icons/"
-rm -rf "$BIN/assets" && cp -r assets "$BIN/"
-# The changelog the launcher shows (About > Changelog) ships with the assets, so it also updates with the game.
-cp -f CHANGELOG.md "$BIN/assets/jfg_launcher/CHANGELOG.md"
+rm -rf "$BIN/assets"
+mkdir -p "$BIN/assets"
+cp -r assets/xr "$BIN/assets/"
 # Empty folders for mods and texture packs (.rtz files or folders); existing ones, and what is in them, are left alone.
 mkdir -p "$BIN/mods" "$BIN/texture_packs"
 say "BUILD OK: $BIN/JetForceGeminiRecompiled"

@@ -13,7 +13,7 @@
 #include "input/controls.hpp"
 
 #if defined(_WIN32)
-#include <Shlobj.h>
+#include <shlobj.h>
 #elif defined(__linux__)
 #include <unistd.h>
 #include <pwd.h>
@@ -162,12 +162,17 @@ void input_field_from_json(const nlohmann::json& j, dino::input::InputField& fie
 
 // JFG port: the folder the executable is in. Everything the program reads or writes at run time lives there.
 std::filesystem::path get_executable_folder_path() {
+#ifdef __ANDROID__
+    if(const char *folder=getenv("APP_FOLDER_PATH"))return folder;
+#endif
     static std::filesystem::path cached;
     if (!cached.empty()) {
         return cached;
     }
     std::error_code ec;
-#if defined(_WIN32)
+#if defined(__ANDROID__)
+    if(const char *folder=getenv("APP_FOLDER_PATH"))cached=folder;
+#elif defined(_WIN32)
     std::wstring buffer(32768, L'\0');
     const DWORD length = GetModuleFileNameW(NULL, buffer.data(), (DWORD)buffer.size());
     if (length > 0 && length < buffer.size()) {
@@ -527,7 +532,6 @@ void load_config() {
     std::filesystem::path recomp_dir = get_app_folder_path();
     std::filesystem::path general_path = recomp_dir / general_filename;
     std::filesystem::path graphics_path = recomp_dir / graphics_filename;
-    std::filesystem::path controls_path = recomp_dir / controls_filename;
     std::filesystem::path sound_path = recomp_dir / sound_filename;
 
     if (!recomp_dir.empty()) {
@@ -547,10 +551,7 @@ void load_config() {
         save_graphics_config(graphics_path);
     }
 
-    if (!load_controls_config(controls_path)) {
-        reset_input_bindings();
-        save_controls_config(controls_path);
-    }
+    // OpenXR actions replace desktop device bindings. Preserve legacy files.
 
     if (!load_sound_config(sound_path)) {
         dino::config::reset_sound_settings();
@@ -571,7 +572,6 @@ void save_config() {
 
     save_general_config(recomp_dir / general_filename);
     save_graphics_config(recomp_dir / graphics_filename);
-    save_controls_config(recomp_dir / controls_filename);
     save_sound_config(recomp_dir / sound_filename);
 }
 

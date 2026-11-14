@@ -1,3 +1,11 @@
+## v1.3.3-xr.1 (2026-11-14)
+
+- Native Vulkan/OpenXR builds for Windows, Linux and standalone Quest 3/3S; a connected HMD is required. English only.
+- Find the owner's US dump in Downloads/JetForceGemini.z64, or in a portable roms folder on PC. Quest's one-time file picker opens in Downloads. No ROM is bundled.
+- Preserve original dialogue/HUD fonts, windows and frames. Fix missing glyph strokes and coarse pixel-grid sampling, double eye render dimensions, and move the stereo HUD plane to 3.5 metres.
+- Fix level-transition crashes, queued camera history, tracked weapon/arm alignment, full-eye damage/transition effects and first-person body clipping. Controller-operated XR settings include turning and weapon calibration.
+- Linux headset rendering/readability confirmed by the user. Windows/Quest builds, signatures and packaging checked; on-device rendering/performance on those platforms remains unverified.
+
 # Changelog
 
 Changes to Jet Force Gemini: Recompiled. Newest first. "Unreleased" is the next release, still in testing: its notes

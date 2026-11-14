@@ -16,3 +16,7 @@
 # These files are exact snapshots of dependency diffs. Their added lines must
 # retain the dependency's original whitespace so `git apply` reproduces it.
 *.patch -whitespace
+
+# Preserve the bundled upstream bitmap font and license text verbatim.
+assets/xr/menu.bdf -whitespace
+assets/xr/FONT-LICENSE.txt -whitespace

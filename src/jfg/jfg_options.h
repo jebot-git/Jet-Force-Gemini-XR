@@ -27,6 +27,11 @@ struct State {
     int  raw_flag = 0;
     bool pending_warp = false;
     // options
+    int xr_turn_mode = 0;          // 0 snap, 1 smooth, 2 disabled
+    int xr_snap_angle = 30;        // degrees per stick deflection
+    int xr_turn_speed = 90;        // smooth-turn degrees/second
+    int xr_weapon_x = 0, xr_weapon_y = 0, xr_weapon_z = 0; // grip-local millimetres
+    int xr_weapon_pitch = 0, xr_weapon_yaw = 0, xr_weapon_roll = 0; // degrees
     bool show_fps = false;         // frame rate in the top right corner
     bool show_level = false;       // level number and name in the top right corner
     bool show_pack = false;        // texture pack in use in the top right corner

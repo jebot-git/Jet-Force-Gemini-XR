@@ -13,6 +13,8 @@
 #include <cstring>
 
 #include "jfg_fields.h"
+#include "jfg_xr_game.h"
+#include "jfg_xr.h"
 #include "jfg_game.h"
 #include "jfg_hooks.h"
 
@@ -113,6 +115,7 @@ extern "C" void jfg_interp_pushed(uint8_t* rdram_, recomp_context* ctx) {
         std::memcpy(&model[i], &bits, sizeof(float));
     }
 
+    if (jfg_xr_is_gun(object,push_source)) id=jfgxr::trackedWeaponId;
     const uint32_t address = mtx & 0x00FFFFFFu;
     rt64_jfg_tag_matrix(address, id, rt64_jfg_matrix_check(rdram_, address), model);
 }

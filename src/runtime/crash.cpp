@@ -169,8 +169,24 @@ static void common_crash_handler(const CrashPrintContext* log_context) {
 
 #include <signal.h>
 #include <cstdio>
+#ifdef __ANDROID__
+#include <unwind.h>
+static int backtrace(void **frames,int capacity) {
+    struct Stack {void **frames;int capacity,count;};
+    Stack stack{frames,capacity,0};
+    _Unwind_Backtrace([](_Unwind_Context *context,void *data) {
+        auto &s=*static_cast<Stack*>(data);
+        if(s.count>=s.capacity)return _URC_END_OF_STACK;
+        s.frames[s.count++]=reinterpret_cast<void*>(_Unwind_GetIP(context));
+        return _URC_NO_REASON;
+    },&stack);
+    return stack.count;
+}
+#else
 #include <execinfo.h>
+#endif
 #include <link.h>
+#include <dlfcn.h>
 #include <sys/prctl.h>
 
 static constexpr size_t MAX_STACKTRACE_DEPTH = 64;
@@ -247,17 +263,25 @@ static void fatal_signal_handler(int signo, siginfo_t* info, void* extra) {
     // Adapted from backtrace_symbols_fd
     for (int i = 0; i < trace_depth; i++) {
         Dl_info info = {};
-        link_map* linkMap;
-        if (dladdr1(trace[i], &info, (void**)&linkMap, RTLD_DL_LINKMAP) && info.dli_fname && info.dli_fname[0] != '\0') {
+        uintptr_t imageBase=0;
+#ifdef __ANDROID__
+        const bool found=dladdr(trace[i],&info)!=0;
+        imageBase=reinterpret_cast<uintptr_t>(info.dli_fbase);
+#else
+        link_map* linkMap=nullptr;
+        const bool found=dladdr1(trace[i],&info,(void**)&linkMap,RTLD_DL_LINKMAP)!=0;
+        if(found)imageBase=linkMap->l_addr;
+#endif
+        if (found && info.dli_fname && info.dli_fname[0] != '\0') {
             crash_printf(&log_context, "%s", info.dli_fname);
 
-            if (info.dli_sname != NULL || linkMap->l_addr != 0) {
+            if (info.dli_sname != NULL || imageBase != 0) {
                 crash_printf(&log_context, "(");
 
                 if (info.dli_sname != NULL) {
                     crash_printf(&log_context, "%s", info.dli_sname);
                 } else {
-                    info.dli_saddr = (void*)linkMap->l_addr;
+                    info.dli_saddr = (void*)imageBase;
                 }
 
                 size_t diff;

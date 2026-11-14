@@ -9,7 +9,7 @@
 #include "config/config.hpp"
 #include "common/error.hpp"
 #include "common/sdl.hpp" // IWYU pragma: keep
-#include "ui/recomp_ui.h"
+#include "runtime/xr_compat.hpp"
 
 namespace dino::runtime {
 

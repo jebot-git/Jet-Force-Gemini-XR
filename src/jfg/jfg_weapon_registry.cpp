@@ -680,9 +680,28 @@ static void with_held(uint8_t* rdram, recomp_context* ctx, void (*orig)(uint8_t*
 }
 
 // The gun's draw (obj, modInst, model, slot unclamped, mf).
-JFG_WRAP(func_8000BE5C_CA5C) { with_held(rdram, ctx, func_8000BE5C_CA5C_orig, true); }
+JFG_WRAP(func_8000BE5C_CA5C) {
+    jfg_xr_gun_matrix((uint32_t)ctx->r4,rd32((uint32_t)ctx->r29+0x10),(int)ctx->r7);
+    with_held(rdram, ctx, func_8000BE5C_CA5C_orig, true);
+}
 // The barrel's world position from the hand joint (obj, modInst, model, slot unclamped, mtx, &x, &y, &z).
-JFG_WRAP(objMakeGunMtx) { with_held(rdram, ctx, objMakeGunMtx_orig, false); }
+JFG_WRAP(objMakeGunMtx) {
+    const uint32_t object=(uint32_t)ctx->r4, stack=(uint32_t)ctx->r29;
+    const int slot=(int)ctx->r7;
+    const uint32_t matrix=rd32(stack+0x10);
+    const uint32_t outputs[3]={rd32(stack+0x14),rd32(stack+0x18),rd32(stack+0x1c)};
+    with_held(rdram, ctx, objMakeGunMtx_orig, false);
+    if (ctx->r2 && jfg_xr_gun_matrix(object,matrix,slot)) {
+        // Use the original model's muzzle, transformed by the tracked matrix.
+        const uint32_t children=rd32(object+0x60), gun=valid_ptr(children)?rd32(children+4):0;
+        const uint32_t models=valid_ptr(gun)?rd32(gun+0x6c):0;
+        const uint32_t instance=valid_ptr(models)?rd32(models+4*std::clamp(slot,0,8)):0;
+        const uint32_t muzzle=valid_ptr(instance)?rd32(instance+0x68):0;
+        if(valid_ptr(muzzle))for(int c=0;c<3;c++)if(valid_ptr(outputs[c]))
+            wrf(outputs[c],rdf(matrix+48+4*c)+rdf(muzzle)*rdf(matrix+4*c)+
+                rdf(muzzle+4)*rdf(matrix+16+4*c)+rdf(muzzle+8)*rdf(matrix+32+4*c));
+    }
+}
 
 // An object's final free (obj, ...): a hero's held model goes first.
 JFG_WRAP(func_80007C68_8868) {

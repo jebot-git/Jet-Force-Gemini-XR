@@ -77,6 +77,18 @@ GAMEPLAY = [
 # The port's control options, after the Players row and Quick Setup (CONTROLS_TOP). The button bindings are their own
 # page (controls.rml), opened with Customize Buttons. Layout holds the switches Quick Setup sets.
 CONTROLS = [
+    ("group", None, "XR Turning", None, None),
+    ("choice", "xr_turn_mode", "XR Turn Mode", [(0, "Snap"), (1, "Smooth"), (2, "Off")],
+     "Right controller stick turning in the headset. Changes apply immediately."),
+    ("range", "xr_snap_angle", "XR Snap Angle", (15, 90, " degrees"), "Degrees per stick deflection in Snap mode. Centre the stick between turns."),
+    ("range", "xr_turn_speed", "XR Smooth Turn Speed", (15, 360, " deg/s"), "Maximum turn speed in Smooth mode."),
+    ("group", None, "XR Weapon Alignment", None, None),
+    ("range", "xr_weapon_x", "Weapon Left / Right", (-300, 300, " mm"), "Offset relative to the right controller grip. Positive is right."),
+    ("range", "xr_weapon_y", "Weapon Down / Up", (-300, 300, " mm"), "Offset relative to the right controller grip. Positive is up."),
+    ("range", "xr_weapon_z", "Weapon Back / Forward", (-300, 300, " mm"), "Offset relative to the right controller grip. Positive is forward."),
+    ("range", "xr_weapon_pitch", "Weapon Pitch", (-180, 180, " degrees"), "Grip-local weapon rotation. Muzzle and shots use the same calibration."),
+    ("range", "xr_weapon_yaw", "Weapon Yaw", (-180, 180, " degrees"), "Grip-local weapon rotation."),
+    ("range", "xr_weapon_roll", "Weapon Roll", (-180, 180, " degrees"), "Grip-local weapon rotation."),
     ("group", None, "Layout", None, None),
     ("bool", "dual_stick", "Dual-Stick Controls", None,
      "Right stick: moves the camera around the character. Left stick: runs in the pushed direction as seen from the camera. While the aim button is held the right stick aims and the left stick moves, as in a first-person game. Menus, cutscenes, Floyd missions and the races keep the normal layout."),

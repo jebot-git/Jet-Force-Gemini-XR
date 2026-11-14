@@ -91,3 +91,16 @@ recompcontrollerdb.txt
 
 # Local game runtime libraries
 .runtime/
+
+# Cross-platform SDK source cache
+.build-deps/
+
+# Python build helper bytecode
+__pycache__/
+
+# Cartridge extensions are excluded regardless of filename case.
+*.[zZ]64
+*.[nN]64
+*.[vV]64
+*.keystore
+*.jks

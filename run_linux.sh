@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Runs the game built by build_linux.sh.   ./run_linux.sh [path/to/rom.z64] [extra arguments]
+# Compatibility command: the only supported application is native OpenXR.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-source "$HERE/xr/launch_environment.sh"
-ROM="${1:-$HERE/baserom.us.z64}"; [ $# -gt 0 ] && shift
-EXE="$HERE/bin/JetForceGeminiRecompiled"
-[ -x "$EXE" ] || { echo "Executable not found: $EXE - run ./build_linux.sh first." >&2; exit 1; }
-[ -f "$ROM" ] || { echo "ROM not found: $ROM" >&2; exit 1; }
-ROM="$(realpath "$ROM")"
-cd "$HERE/bin"
-exec ./JetForceGeminiRecompiled --rom "$ROM" --skip-launcher "$@"
+exec bash "$HERE/run_xr.sh" "$@"

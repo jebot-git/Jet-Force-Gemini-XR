@@ -1,4 +1,5 @@
 #include "jfg_xr_game.h"
+#include "jfg_xr_draw.h"
 // Jet Force Gemini port: the JFG mod API (mod_api/jfg_api.h for mods, jfg_api.h for the port).
 #include <algorithm>
 #include <atomic>
@@ -257,7 +258,7 @@ void register_api() {
     recomp::overlays::register_ext_base_export("jfg_aim_lock", aim_lock);
     recomp::overlays::register_ext_base_export("jfg_object_tint", object_tint);
     recomp::overlays::register_base_export("jfg_gfx_alloc", gfx_alloc);
-    jfg::overlay::register_api(); // pictures and shapes over the game at the window's resolution (jfg_overlay.cpp)
+
     jfg::register_weapon_hud_api(); // the weapon panel's icons, the game's texts, Tribal counts (jfg_weapon_hud.cpp)
     jfg::register_weapon_registry_api(); // modded weapons on slot 15 (jfg_weapon_registry.cpp)
     jfg::register_kill_api();            // kills credited to mods' weapons (jfg_kills.cpp)
@@ -280,6 +281,7 @@ uint32_t gfx_block(uint32_t bytes) { return gfx_take(bytes); }
 
 // mainChangeLevel(level, character, ...): jfg_on_level_change, then the game's code.
 JFG_WRAP(mainChangeLevel) {
+    jfg::jfg_xr_level_change();
     jfg::api::fire(rdram, ctx, jfg::api::Event::LevelChange, (int32_t)ctx->r4, (int32_t)ctx->r5);
     mainChangeLevel_orig(rdram, ctx);
 }
@@ -423,7 +425,7 @@ static bool fire_value_cancel(uint8_t* rdram, recomp_context* ctx, jfg::api::Eve
 // the interpolation's bookkeeping around it (jfg_interpolation.cpp).
 JFG_WRAP(objPrintObject) {
     uint32_t object = (uint32_t)ctx->r7;
-    if (jfg::jfg_xr_hide(object)) return;
+    // The local character's arms and held weapon share its model draw.
     if (!fire_value_cancel(rdram, ctx, jfg::api::Event::ObjectDraw, object)) return;
     ctx->r7 = (gpr)(int32_t)object;
     // The interpolation's bookkeeping starts before jfg_on_object_draw_gfx, so the matrices a mod's own drawing pushes
@@ -502,6 +504,7 @@ JFG_WRAP(amSndPlay) {
 
 // frontFlashScreen(?, ?, colour, ...): jfg_on_screen_flash (Hit flash opacity); a callback may change the colour.
 JFG_WRAP(frontFlashScreen) {
+    jfg::XrDrawScope scope(rdram,uint32_t(ctx->r4),jfgxr::DrawMode::ScreenEffect);
     uint32_t color = (uint32_t)ctx->r6;
     if (!fire_value_cancel(rdram, ctx, jfg::api::Event::ScreenFlash, color)) return;
     ctx->r6 = (gpr)(int32_t)color;
@@ -536,7 +539,7 @@ JFG_WRAP(prnBorder) {
         api::fire(rdram, ctx, api::Event::DrawHud, (int32_t)p.addr);
     }
     prnBorder_orig(rdram, ctx);
-    jfg::overlay::frame_done(); // what mods sent for this frame's overlay is shown from now on
+
 }
 
 // instQueueMsg(player, msg): a message for a player's HUD panel (a pick-up's name, a hit): jfg_on_hud_message first.

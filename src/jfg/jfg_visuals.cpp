@@ -1,6 +1,7 @@
 // Jet Force Gemini port: visual options, for the game hooks and the renderer - widescreen, field of view, the levels'
 // own fog (and the hidden depth fog), LOD and draw distance, texture and picture filtering, the red flash on a hit.
 #include <algorithm>
+#include "jfg_xr.h"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -271,7 +272,7 @@ std::atomic<int> g_level_fog_near{ -1 }, g_level_fog_far{ -1 }; // the level's f
 // The fog options (No level fog, Level fog distance) applied to the level's fog positions.
 extern "C" void jfg_level_fog_options(int& near_pos, int& far_pos) {
     if (near_pos >= FOG_POSITION_FAR) return;
-    if (g.no_level_fog) {
+    if (g.no_level_fog || jfgxr::enabled()) {
         near_pos = FOG_OFF_NEAR;
         far_pos = FOG_OFF_FAR;
         return;

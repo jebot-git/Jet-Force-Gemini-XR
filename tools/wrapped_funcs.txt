@@ -54,11 +54,14 @@ osSyncPrintf
 objPrintObject
 amSndPlay
 frontFlashScreen
+fxScreenEffect
+screenDraw
 sidekickControl
 
 # Locales (jfg_locale.cpp): the menu text buffer, the language slot, subtitles, fonts 4-7 and page fonts
 initFront
 setLanguage
+frontSetLanguage
 subtitleStart
 fontInit
 func_8006FD98_70998
@@ -150,6 +153,7 @@ fxDrawDigitalNumber
 frontDrawObj
 frontPrintNum
 fontPrintXY
+func_overlay_7_00001F80_1EFD0A8
 frontDrawRectangles
 instDrawHealth
 func_overlay_14_0000292C_1F10284
@@ -225,6 +229,8 @@ func_overlay_18_00001294_1F30C6C
 func_8000BE5C_CA5C
 func_80007C68_8868
 objMakeGunMtx
+modGenAnimMatrices
+camConvertMatrixList
 
 # New squad enemy types run by mods (jfg_squad_types.cpp, decomp MSR 12)
 BTSBStandardFire

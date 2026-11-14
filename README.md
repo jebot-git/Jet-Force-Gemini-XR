@@ -1,3 +1,11 @@
+> This fork is **Jet Force Gemini XR**, an English-only native OpenXR game.
+> Desktop game modes and launchers are excluded. For Linux, Windows and standalone
+> Quest 3 builds, see [README-XR.txt](README-XR.txt) and [README-BUILDS.md](README-BUILDS.md).
+> Put your US dump in **Downloads/JetForceGemini.z64**. Windows/Linux also accept
+> **roms/JetForceGemini.z64** beside the executable; Quest opens a one-time picker in Downloads.
+> Get [XR releases](https://github.com/jebot-git/Jet-Force-Gemini-XR/releases).
+> Frontend instructions in the upstream documentation below do not apply to this fork.
+
 ![Jet Force Gemini: Recompiled](images/jfg-logo-recompiled-transparent.png)
 
 Playable PC port of Jet Force Gemini (N64, US) for Windows Linux, & Steam Deck, made by static recompilation. No emulator:

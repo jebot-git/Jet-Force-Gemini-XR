@@ -4,8 +4,9 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <type_traits>
 #include "slot_map.h"
-#include "ui/recomp_ui.h"
+#include "runtime/xr_compat.hpp"
 #include "librecomp/helpers.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/addresses.hpp"

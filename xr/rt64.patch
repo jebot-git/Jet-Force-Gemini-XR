@@ -1,13 +1,1399 @@
-diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
-index 92b2ccd..2269864 100644
---- a/src/hle/rt64_workload_queue.cpp
-+++ b/src/hle/rt64_workload_queue.cpp
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e39d737..67ea553 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -42,9 +42,10 @@ if (WIN32)
+         __PRFCHWINTRIN_H
+     )
+ 
+-    # Dependencies that must be next to the DLL.
+-    configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxcompiler.dll" "dxcompiler.dll" COPYONLY)
+-    configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxil.dll" "dxil.dll" COPYONLY)
++    if(NOT JFG_VULKAN_ONLY)
++        configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxcompiler.dll" "dxcompiler.dll" COPYONLY)
++        configure_file("${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxil.dll" "dxil.dll" COPYONLY)
++    endif()
+ elseif (APPLE)
+     if (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+         # find zlib and include in dyld path
+@@ -65,13 +66,28 @@ else()
+     endif()
+ endif()
+ 
++if(CMAKE_CROSSCOMPILING)
++    if(CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
++      set(JFG_DXC_ARCH x64)
++    else()
++      set(JFG_DXC_ARCH arm64)
++    endif()
++    set(DXC "${CMAKE_COMMAND}" -E env "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/src/contrib/dxc/lib/${JFG_DXC_ARCH}" "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/${JFG_DXC_ARCH}/dxc-linux")
++endif()
++
+ set(ZSTD_LEGACY_SUPPORT OFF)
+ set(ZSTD_BUILD_STATIC ON)
++set(ZSTD_BUILD_DICTBUILDER OFF CACHE BOOL "" FORCE)
+ set(ZSTD_BUILD_SHARED OFF)
+ 
+-add_subdirectory(src/tools/file_to_c)
++if(CMAKE_CROSSCOMPILING AND JFG_HOST_FILE_TO_C)
++    add_executable(file_to_c IMPORTED GLOBAL)
++    set_target_properties(file_to_c PROPERTIES IMPORTED_LOCATION "${JFG_HOST_FILE_TO_C}")
++else()
++    add_subdirectory(src/tools/file_to_c)
++endif()
+ add_subdirectory(src/contrib/re-spirv)
+-add_subdirectory(src/contrib/nativefiledialog-extended)
++
+ add_subdirectory(src/contrib/zstd/build/cmake)
+ 
+ if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND RT64_SDL_WINDOW_VULKAN)
+@@ -99,8 +115,6 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+     endif()
+ endif()
+ 
+-set(ANDROID_PLATFORM android-24)
+-set(ANDROID_ABI arm64-v8a)
+ 
+ # For DXC
+ set (DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")
+@@ -114,9 +128,14 @@ set (DXC_GS_OPTS "${DXC_COMMON_OPTS}" "-E" "GSMain" "-T gs_6_3")
+ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-target-env=vulkan1.1spirv1.4" "-fspv-extension=SPV_KHR_ray_tracing" "-fspv-extension=SPV_EXT_descriptor_indexing")
+ 
+ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
++    set(XR_RASTER_DEPS)
++    if(FILENAME MATCHES "RasterVS[.]hlsl$")
++        list(APPEND XR_RASTER_DEPS "${PROJECT_SOURCE_DIR}/src/shaders/XrHud.hlsli"
++            "${PROJECT_SOURCE_DIR}/src/shared/rt64_raster_params.h")
++    endif()
+     add_custom_command(OUTPUT ${OUTNAME}.spv
+         COMMAND ${DXC} ${DXC_SPV_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.spv
+-        DEPENDS ${FILENAME})
++        DEPENDS ${FILENAME} ${XR_RASTER_DEPS})
+     add_custom_command(OUTPUT ${OUTNAME}.spirv.c
+         COMMAND file_to_c ${OUTNAME}.spv ${TARGET_NAME}BlobSPIRV ${OUTNAME}.spirv.c ${OUTNAME}.spirv.h
+         DEPENDS ${OUTNAME}.spv file_to_c
+@@ -171,7 +190,7 @@ function(build_shader TARGETOBJ SHADERNAME OPTIONS)
+     cmake_path(GET OUTNAME PARENT_PATH OUTPUT_DIR)
+     file(MAKE_DIRECTORY ${OUTPUT_DIR})
+     # Compile DXIL shader binaries if building on Windows
+-    if (WIN32)
++    if (WIN32 AND NOT JFG_VULKAN_ONLY)
+         build_shader_dxil_impl(${TARGETOBJ} ${FILENAME} ${TARGET_NAME} ${OUTNAME} ${OPTIONS} ${EXTRA_ARGS})
+     endif()
+     # Compile Metal shader binaries if building on macOS
+@@ -284,14 +303,11 @@ function(build_ray_shader TARGETOBJ SHADERNAME)
+     build_shader(${TARGETOBJ} ${SHADERNAME} "${DXC_RT_OPTS}" ${ARGN})
+ endfunction()
+ 
+-# Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
+-if (WIN32)
+-    set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+-    set(SDL2_LIBRARIES "SDL2" "SDL2main")
+-    link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
+-else()
++if(NOT TARGET SDL2::SDL2)
+     find_package(SDL2 REQUIRED)
+ endif()
++set(SDL2_INCLUDE_DIRS "$<TARGET_PROPERTY:SDL2::SDL2,INTERFACE_INCLUDE_DIRECTORIES>")
++set(SDL2_LIBRARIES SDL2::SDL2)
+ 
+ message(STATUS "${SDL2_INCLUDE_DIRS} ${SDL2_LIBRARIES}")
+ 
+@@ -426,7 +442,7 @@ include_directories(
+     "${PROJECT_SOURCE_DIR}/src/contrib/nativefiledialog-extended/src/include"
+ )
+ 
+-if (WIN32)
++if (WIN32 AND NOT JFG_VULKAN_ONLY)
+     # DXC only needs to be included during runtime for Windows.
+     include_directories("${PROJECT_SOURCE_DIR}/src/contrib/dxc/inc")
+ endif()
+@@ -442,7 +458,7 @@ set_target_properties(rt64 PROPERTIES PREFIX "")
+ 
+ # Add common libraries.
+ target_link_libraries(rt64 re-spirv)
+-target_link_libraries(rt64 nfd)
++
+ target_link_libraries(rt64 libzstd_static)
+ target_link_libraries(rt64 plume)
+ 
+@@ -465,7 +481,7 @@ if (APPLE)
+ endif()
+ 
+ # Add any Windows-specific source files and libraries
+-if (WIN32)
++if (WIN32 AND NOT JFG_VULKAN_ONLY)
+     target_sources(rt64 PRIVATE
+         "${PROJECT_SOURCE_DIR}/src/contrib/imgui/backends/imgui_impl_dx12.cpp"
+         "${PROJECT_SOURCE_DIR}/src/contrib/imgui/backends/imgui_impl_win32.cpp"
+@@ -482,9 +498,7 @@ endif()
+ 
+ target_link_directories(rt64 PRIVATE ${PROJECT_SOURCE_DIR}/src/contrib/dxc)
+ 
+-if (NOT ANDROID)
+-    target_link_libraries(rt64 ${SDL2_LIBRARIES})
+-endif()
++target_link_libraries(rt64 SDL2::SDL2)
+ 
+ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
+     if (NOT RT64_SDL_WINDOW_VULKAN)
+@@ -496,7 +510,7 @@ endif()
+ 
+ preprocess_shader(rt64 "src/shaders/RenderParams.hlsli")
+ 
+-if (${WIN32})
++if (WIN32 AND NOT JFG_VULKAN_ONLY)
+     build_library_shader(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSLibrary.hlsl")
+     build_library_shader(rt64 "src/shaders/RasterPS.hlsl" "src/shaders/RasterPSLibraryMS.hlsl" "-D MULTISAMPLING")
+     build_library_shader(rt64 "src/shaders/RasterVS.hlsl" "src/shaders/RasterVSLibrary.hlsl")
+diff --git a/src/common/rt64_dynamic_libraries.cpp b/src/common/rt64_dynamic_libraries.cpp
+index 56b2b04..add46cd 100644
+--- a/src/common/rt64_dynamic_libraries.cpp
++++ b/src/common/rt64_dynamic_libraries.cpp
+@@ -8,7 +8,7 @@
+ #include <filesystem>
+ 
+ #if defined(_WIN32)
+-#   include <Windows.h>
++#   include <windows.h>
+ #   include "utf8conv/utf8conv.h"
+ #endif
+ 
+@@ -28,7 +28,7 @@ namespace RT64 {
+     // DynamicLibraries
+ 
+     bool DynamicLibraries::load() {
+-#   if defined(_WIN32)
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         HMODULE moduleHandle = nullptr;
+         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, LPCWSTR(LocalFunction), &moduleHandle)) {
+             fprintf(stderr, "GetModuleHandleExW failed with error code 0x%lX\n", GetLastError());
+diff --git a/src/common/rt64_mapped_file.h b/src/common/rt64_mapped_file.h
+index ff1c45a..af3dadd 100644
+--- a/src/common/rt64_mapped_file.h
++++ b/src/common/rt64_mapped_file.h
+@@ -7,7 +7,7 @@
+ #include <filesystem>
+ 
+ #if defined(_WIN32)
+-#   include <Windows.h>
++#   include <windows.h>
+ #else
+ #   include <sys/mman.h>
+ #endif
+diff --git a/src/common/rt64_sommelier.h b/src/common/rt64_sommelier.h
+index 15b9b10..45af8ba 100644
+--- a/src/common/rt64_sommelier.h
++++ b/src/common/rt64_sommelier.h
+@@ -6,7 +6,7 @@
+ 
+ #if defined(_WIN32)
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ namespace RT64 {
+     struct Sommelier {
+diff --git a/src/common/rt64_thread.cpp b/src/common/rt64_thread.cpp
+index 5a5f2db..da2b0d9 100644
+--- a/src/common/rt64_thread.cpp
++++ b/src/common/rt64_thread.cpp
+@@ -8,7 +8,7 @@
+ #include <thread>
+ 
+ #if defined(_WIN64)
+-#   include <Windows.h>
++#   include <windows.h>
+ #   include "utf8conv/utf8conv.h"
+ #elif defined(__linux__)
+ #   include <pthread.h>
+diff --git a/src/common/rt64_tmem_hasher.h b/src/common/rt64_tmem_hasher.h
+index 8c6af2b..0a1be1e 100644
+--- a/src/common/rt64_tmem_hasher.h
++++ b/src/common/rt64_tmem_hasher.h
+@@ -23,7 +23,7 @@ static unsigned bitScanForward64(uint64_t val) {
+         __assume(0);
+     }
+ #endif
+-#elif defined(__GNUC__) && (__GNUC__ >= 4) && defined(__LP64__)
++#elif defined(__GNUC__) && (__GNUC__ >= 4)
+     return (unsigned)__builtin_ctzll(val);
+ #elif defined(__ICCARM__)
+     return (unsigned)__builtin_ctzll(val);
+diff --git a/src/common/rt64_user_paths.cpp b/src/common/rt64_user_paths.cpp
+index f38d8eb..6b4dd97 100644
+--- a/src/common/rt64_user_paths.cpp
++++ b/src/common/rt64_user_paths.cpp
+@@ -8,7 +8,7 @@
+ #   include <unistd.h>
+ #   include <pwd.h>
+ #elif defined(_WIN32)
+-#   include <Shlobj.h>
++#   include <shlobj.h>
+ #elif defined(__APPLE__)
+ #   include "apple/rt64_apple.h"
+ #endif
+diff --git a/src/contrib/utf8conv/utf8conv.h b/src/contrib/utf8conv/utf8conv.h
+index a541b32..d197c84 100644
+--- a/src/contrib/utf8conv/utf8conv.h
++++ b/src/contrib/utf8conv/utf8conv.h
+@@ -43,7 +43,7 @@
+ //
+ 
+ #include <crtdbg.h>      // For _ASSERTE()
+-#include <Windows.h>     // Win32 Platform SDK main header        
++#include <windows.h>     // Win32 Platform SDK main header
+ 
+ #include <limits>        // For std::numeric_limits
+ #include <stdexcept>     // For std::overflow_error
+diff --git a/src/gbi/rt64_gbi_f3ddkr.cpp b/src/gbi/rt64_gbi_f3ddkr.cpp
+index 2a4a1f3..9537519 100644
+--- a/src/gbi/rt64_gbi_f3ddkr.cpp
++++ b/src/gbi/rt64_gbi_f3ddkr.cpp
+@@ -468,6 +468,7 @@ namespace RT64 {
+ 
+         void resetJFG(State *state) {
+             reset(state);
++            state->jfgXrDrawMode = 0;
+             state->rsp->DKR.jfg = true;
+             state->rsp->DKR.jfgCullFlip = false;
+             // JFG PORT: not DKR's 8 MB mask: JFG's addresses go through jfgPhysicalAddress (rt64_state.h), so mods can
+diff --git a/src/gbi/rt64_gbi_rdp.cpp b/src/gbi/rt64_gbi_rdp.cpp
+index 6255872..b045718 100644
+--- a/src/gbi/rt64_gbi_rdp.cpp
++++ b/src/gbi/rt64_gbi_rdp.cpp
+@@ -7,11 +7,15 @@
+ #include "../include/rt64_extended_gbi.h"
+ 
+ #include "rt64_f3d.h"
++#include "xr_draw.h"
+ 
+ namespace RT64 {
+     namespace GBI_RDP {
+         void noOp(State *state, DisplayList **dl) {
+-            // Do nothing.
++            if((*dl)->w0==jfgxr::drawModeMarker && (*dl)->w1<=uint32_t(jfgxr::DrawMode::ScreenEffect)) {
++                state->flush();
++                state->jfgXrDrawMode=(*dl)->w1;
++            }
+         }
+ 
+         void setColorImage(State *state, DisplayList **dl) {
+diff --git a/src/gui/rt64_file_dialog.cpp b/src/gui/rt64_file_dialog.cpp
+index cea1ebd..d123592 100644
+--- a/src/gui/rt64_file_dialog.cpp
++++ b/src/gui/rt64_file_dialog.cpp
+@@ -1,101 +1,10 @@
+-//
+-// RT64
+-//
+-
++// Native OpenXR builds have no desktop file-dialog service.
+ #include "rt64_file_dialog.h"
+-
+-#include <cassert>
+-
+-#include <nfd.h>
+-
+-#if defined(__APPLE__)
+-#   include "apple/rt64_apple.h"
+-#endif
+-
+ namespace RT64 {
+-    // FileDialog
+-
+-    std::atomic<bool> FileDialog::isOpen = false;
+-
+-    void FileDialog::initialize() {
+-        NFD_Init();
+-    }
+-
+-    void FileDialog::finish() {
+-        NFD_Quit();
+-    }
+-
+-    static std::vector<nfdnfilteritem_t> convertFilters(const std::vector<FileFilter> &filters) {
+-        std::vector<nfdnfilteritem_t> nfdFilters;
+-        for (const FileFilter &filter : filters) {
+-            nfdFilters.emplace_back(nfdnfilteritem_t{ filter.description.c_str(), filter.extensions.c_str() });
+-        }
+-
+-        return nfdFilters;
+-    }
+-
+-    void FileDialog::getDirectoryPath(const Callback &callback) {
+-        isOpen = true;
+-#ifdef __APPLE__
+-        apple::dispatchOnMainThread([callback]() {
+-#endif
+-        std::filesystem::path path;
+-        nfdnchar_t *nfdPath = nullptr;
+-        nfdresult_t res = NFD_PickFolderN(&nfdPath, nullptr);
+-        if (res == NFD_OKAY) {
+-            path = std::filesystem::path(nfdPath);
+-            NFD_FreePathN(nfdPath);
+-        }
+-
+-        callback(path);
+-#ifdef __APPLE__
+-        });
+-#endif
+-        isOpen = false;
+-
+-    }
+-
+-    void FileDialog::getOpenFilename(const std::vector<FileFilter> &filters, const Callback &callback) {
+-        isOpen = true;
+-#ifdef __APPLE__
+-        apple::dispatchOnMainThread([filters, callback]() {
+-#endif
+-        std::filesystem::path path;
+-        nfdnchar_t *nfdPath = nullptr;
+-        std::vector<nfdnfilteritem_t> nfdFilters = convertFilters(filters);
+-        nfdresult_t res = NFD_OpenDialogN(&nfdPath, nfdFilters.data(), nfdFilters.size(), nullptr);
+-        if (res == NFD_OKAY) {
+-            path = std::filesystem::path(nfdPath);
+-            NFD_FreePathN(nfdPath);
+-        }
+-
+-        callback(path);
+-#ifdef __APPLE__
+-        });
+-#endif
+-        isOpen = false;
+-
+-    }
+-
+-    void FileDialog::getSaveFilename(const std::vector<FileFilter> &filters, const Callback &callback) {
+-        isOpen = true;
+-#ifdef __APPLE__
+-        apple::dispatchOnMainThread([filters, callback]() {
+-#endif
+-        std::filesystem::path path;
+-        nfdnchar_t *nfdPath = nullptr;
+-        std::vector<nfdnfilteritem_t> nfdFilters = convertFilters(filters);
+-        nfdresult_t res = NFD_SaveDialogN(&nfdPath, nfdFilters.data(), nfdFilters.size(), nullptr, nullptr);
+-        if (res == NFD_OKAY) {
+-            path = std::filesystem::path(nfdPath);
+-            NFD_FreePathN(nfdPath);
+-        }
+-
+-        callback(path);
+-#ifdef __APPLE__
+-        });
+-#endif
+-        isOpen = false;
+-
+-    }
+-};
+\ No newline at end of file
++std::atomic<bool> FileDialog::isOpen=false;
++void FileDialog::initialize() {}
++void FileDialog::finish() {}
++void FileDialog::getDirectoryPath(const Callback &callback) {callback({});}
++void FileDialog::getOpenFilename(const std::vector<FileFilter>&,const Callback &callback) {callback({});}
++void FileDialog::getSaveFilename(const std::vector<FileFilter>&,const Callback &callback) {callback({});}
++}
+diff --git a/src/gui/rt64_inspector.cpp b/src/gui/rt64_inspector.cpp
+index 845fd70..f86a22e 100644
+--- a/src/gui/rt64_inspector.cpp
++++ b/src/gui/rt64_inspector.cpp
+@@ -18,7 +18,7 @@
+ #include "imgui/imgui_impl_sdl2_custom.h"
+ #include "imgui/backends/imgui_impl_vulkan.h"
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ #   include "imgui/backends/imgui_impl_dx12.h"
+ #   include "imgui/backends/imgui_impl_win32.h"
+ #   include "utf8conv/utf8conv.h"
+@@ -28,7 +28,7 @@
+ #   include "imgui/backends/imgui_impl_metal.h"
+ #endif
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ #   include "plume_d3d12.h"
+ #endif
+ 
+@@ -38,7 +38,7 @@
+ 
+ static std::string IniFilenameUTF8;
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+ #endif
+ 
+@@ -83,7 +83,7 @@ namespace RT64 {
+             ImGui_ImplSDL2_InitForOther(sdlWindow);
+         }
+         else {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             RenderWindow renderWindow = swapChain->getWindow();
+             ImGui_ImplWin32_Init(renderWindow);
+ #       endif
+@@ -91,7 +91,7 @@ namespace RT64 {
+ 
+         switch (graphicsAPI) {
+         case UserConfiguration::GraphicsAPI::D3D12: {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             D3D12Device *interfaceDevice = static_cast<D3D12Device *>(device);
+             RenderDescriptorRange descriptorRange(RenderDescriptorRangeType::TEXTURE, 0, 1);
+             descriptorSet = interfaceDevice->createDescriptorSet(RenderDescriptorSetDesc(&descriptorRange, 1));
+@@ -164,7 +164,7 @@ namespace RT64 {
+     Inspector::~Inspector() {
+         switch (graphicsAPI) {
+         case UserConfiguration::GraphicsAPI::D3D12: {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             ImGui_ImplDX12_Shutdown();
+ #       else
+             assert(false && "Unsupported Graphics API.");
+@@ -193,7 +193,7 @@ namespace RT64 {
+             ImGui_ImplSDL2_Shutdown();
+         }
+         else {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             ImGui_ImplWin32_Shutdown();
+ #       endif
+         }
+@@ -217,14 +217,14 @@ namespace RT64 {
+             ImGui_ImplSDL2_NewFrame();
+         }
+         else {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             ImGui_ImplWin32_NewFrame();
+ #       endif
+         }
+ 
+         switch (graphicsAPI) {
+         case UserConfiguration::GraphicsAPI::D3D12: {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             ImGui_ImplDX12_NewFrame();
+ #       else
+             assert(false && "Unsupported Graphics API.");
+@@ -264,7 +264,7 @@ namespace RT64 {
+         if (drawData != nullptr) {
+             switch (graphicsAPI) {
+             case UserConfiguration::GraphicsAPI::D3D12: {
+-#       ifdef _WIN32
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+                 D3D12CommandList *interfaceCommandList = static_cast<D3D12CommandList *>(commandList);
+                 interfaceCommandList->checkDescriptorHeaps();
+                 ImGui_ImplDX12_RenderDrawData(drawData, interfaceCommandList->d3d);
+@@ -306,12 +306,16 @@ namespace RT64 {
+         }
+     }
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+     bool Inspector::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+         return ImGui_ImplWin32_WndProcHandler(swapChain->getWindow(), msg, wParam, lParam);
+     }
+ #endif
+ 
++#if defined(_WIN32) && defined(JFG_VULKAN_ONLY)
++    bool Inspector::handleMessage(UINT,WPARAM,LPARAM) {return false;}
++#endif
++
+     bool Inspector::handleSdlEvent(SDL_Event *event) {
+         assert((sdlWindow != nullptr) && "SDL Events shouldn't be handled if SDL was not used.");
+ 
+diff --git a/src/gui/rt64_inspector.h b/src/gui/rt64_inspector.h
+index 558f1ee..cd6a8b3 100644
+--- a/src/gui/rt64_inspector.h
++++ b/src/gui/rt64_inspector.h
+@@ -8,7 +8,7 @@
+ #include <filesystem>
+ 
+ #ifdef _WIN32
+-#include <Windows.h>
++#include <windows.h>
+ #endif
+ 
+ #include "common/rt64_common.h"
+diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
+index 4f5be39..293a28e 100644
+--- a/src/hle/rt64_application.cpp
++++ b/src/hle/rt64_application.cpp
 @@ -1,3 +1,4 @@
 +#include "jfg_xr.h"
  //
  // RT64
  //
-@@ -38,6 +39,7 @@ namespace RT64 {
+@@ -100,7 +101,7 @@ namespace RT64 {
+     }
+ 
+     Application::SetupResult Application::setup(uint32_t threadId) {
+-#   ifdef _WIN64
++#   if defined(_WIN64) && !defined(JFG_VULKAN_ONLY)
+         if (!DynamicLibraries::load()) {
+             fprintf(stderr, "Failed to load dynamic libraries. Make sure the dependencies are next to the Plugin's DLL.\n");
+             return SetupResult::Success;
+@@ -129,23 +130,13 @@ namespace RT64 {
+         }
+ #   endif
+ 
+-        // Create the application window.
+-        const char *windowTitle = "RT64";
+-        appWindow = std::make_unique<ApplicationWindow>();
+-        if (core.window != RenderWindow{}) {
+-            appWindow->setup(core.window, this, threadId);
+-        }
+-        else {
+-            appWindow->setup(windowTitle, this);
+-        }
+-
+-        // Detect refresh rate from the display the window is located at.
+-        appWindow->detectRefreshRate();
++        // Native OpenXR: no window or display connection is created.
++        appWindow=std::make_unique<ApplicationWindow>();
+ 
+         // Resolve the graphics API option in case it's automatic.
+         chosenGraphicsAPI = UserConfiguration::resolveGraphicsAPI(userConfig.graphicsAPI);
+ 
+-#   ifdef _WIN64
++#   if defined(_WIN64) && !defined(JFG_VULKAN_ONLY)
+         // Windows can try falling back to the other API option in case of failure.
+         const uint32_t CreationAttempts = (userConfig.graphicsAPI == UserConfiguration::GraphicsAPI::Automatic) ? 2 : 1;
+ #   else
+@@ -153,7 +144,7 @@ namespace RT64 {
+ #   endif
+ 
+         for (uint32_t creationAttempt = 0; (creationAttempt < CreationAttempts) && (device == nullptr); creationAttempt++) {
+-#       ifdef _WIN64
++#       if defined(_WIN64) && !defined(JFG_VULKAN_ONLY)
+             if (creationAttempt == 1) {
+                 if (chosenGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12) {
+                     fprintf(stderr, "Unable to initialize a D3D12 device. Falling back to Vulkan.\n");
+@@ -171,7 +162,7 @@ namespace RT64 {
+             // Create a render interface with the preferred backend.
+             switch (chosenGraphicsAPI) {
+             case UserConfiguration::GraphicsAPI::D3D12:
+-#       ifdef _WIN64
++#       if defined(_WIN64) && !defined(JFG_VULKAN_ONLY)
+                 renderInterface = CreateD3D12Interface();
+                 break;
+ #       else
+@@ -335,25 +326,8 @@ namespace RT64 {
+         workloadGraphicsWorker = std::make_unique<RenderWorker>(device.get(), "Workload Graphics", RenderCommandListType::DIRECT);
+         presentGraphicsWorker = std::make_unique<RenderWorker>(device.get(), "Present Graphics", RenderCommandListType::DIRECT);
+ 
+-        // Create the swap chain with the texture count specified from the configuration.
+-        RenderSwapChainDesc swapChainDesc;
+-        swapChainDesc.renderWindow = appWindow->windowHandle;
+-        swapChainDesc.format = RenderFormat::B8G8R8A8_UNORM;
+-        swapChainDesc.textureCount = (userConfig.displayBuffering == UserConfiguration::DisplayBuffering::Triple) ? 3 : 2;
+-
+-        // Enable present wait if supported by the device. We specify a max latency of 1 as we use it to wait right before the next
+-        // presentation call is issued.
+-        // 
+-        // FIXME: RT64 used to have an error where the swap chain's wait() function would wait for one extra frame under Vulkan. When
+-        // updating to using plume, this was corrected, but it exposed an issue with NVIDIA drivers (since 580.105.08 only on Linux)
+-        // where the wait() will take far more time than expected and cause stuttering. While this seems to work fine everywhere else,
+-        // we stick to the pre-plume approach to be safe.
+-        if (device->getCapabilities().presentWait) {
+-            swapChainDesc.maxFrameLatency = (chosenGraphicsAPI == UserConfiguration::GraphicsAPI::Vulkan) ? 2 : 1;
+-            swapChainDesc.enablePresentWait = true;
+-        }
+-
+-        swapChain = presentGraphicsWorker->commandQueue->createSwapChain(swapChainDesc);
++        // OpenXR owns all swapchains; the desktop swapchain remains absent.
++        if(!jfgxr::initializeSession(workloadGraphicsWorker.get()))return SetupResult::GraphicsDeviceNotFound;
+ 
+         // Before configuring multisampling, make sure the device actually supports it for the formats we'll use. If it doesn't, turn off antialiasing in the configuration.
+         const RenderSampleCounts colorSampleCounts = device->getSampleCountsSupported(RenderTarget::colorBufferFormat(usesHDR));
+@@ -412,8 +386,9 @@ namespace RT64 {
+         sharedQueueResources->setUserConfig(userConfig, false);
+         sharedQueueResources->setEmulatorConfig(emulatorConfig);
+         sharedQueueResources->setEnhancementConfig(enhancementConfig);
+-        sharedQueueResources->setSwapChainSize(swapChain->getWidth(), swapChain->getHeight());
+-        sharedQueueResources->setSwapChainRate(appWindow->getRefreshRate());
++        unsigned width,height;jfgxr::renderSize(width,height);
++        sharedQueueResources->setSwapChainSize(width,height);
++        sharedQueueResources->setSwapChainRate(jfgxr::refreshRate());
+         sharedQueueResources->renderTargetManager.setMultisampling(multisampling);
+         sharedQueueResources->renderTargetManager.setUsesHDR(usesHDR);
+ 
+@@ -532,7 +507,7 @@ namespace RT64 {
+     }
+ 
+     void Application::updateScreen() {
+-        appWindow->sdlCheckFilterInstallation();
++        // OpenXR-only: there is no SDL window/filter.
+         screenApiProfiler.logAndRestart();
+         state->updateScreen(core.decodeVI(), false);
+     }
+@@ -694,6 +669,7 @@ namespace RT64 {
+         state.reset();
+         workloadQueue.reset();
+         presentQueue.reset();
++        jfgxr::shutdown();
+ 
+         // Call the deinit hook if one was attached.
+         RenderHookDeinit *deinitHook = GetRenderHookDeinit();
+diff --git a/src/hle/rt64_application_window.cpp b/src/hle/rt64_application_window.cpp
+index 08f83e5..ddaab4a 100755
+--- a/src/hle/rt64_application_window.cpp
++++ b/src/hle/rt64_application_window.cpp
+@@ -1,425 +1,18 @@
+-//
+-// RT64
+-//
+-
++// Native OpenXR builds retain the renderer's window interface without WSI.
+ #include "rt64_application_window.h"
+-
+-#include <cassert>
+-#include <stdio.h>
+-#include <SDL.h>
+-
+-#if defined(_WIN32)
+-#   include <Windows.h>
+-#   include <ShellScalingAPI.h>
+-#elif defined(__linux__)
+-#   define Status int
+-#   if !defined(RT64_SDL_WINDOW_VULKAN)
+-#      include <X11/extensions/Xrandr.h>
+-#   endif
+-#elif defined(__APPLE__)
+-#   include "rt64_application.h"
+-#   include "apple/rt64_apple.h"
+-#endif
+-
+-#include "common/rt64_common.h"
+-
++#include "jfg_xr.h"
++#include <stdexcept>
+ namespace RT64 {
+-    // ApplicationWindow
+-
+-    ApplicationWindow *ApplicationWindow::HookedApplicationWindow = nullptr;
+-
+-    ApplicationWindow::ApplicationWindow() {
+-        // Empty.
+-    }
+-
+-    ApplicationWindow::~ApplicationWindow() {
+-        if (HookedApplicationWindow == this) {
+-            HookedApplicationWindow = nullptr;
+-        }
+-
+-#   ifdef _WIN32
+-        if (windowHook != nullptr) {
+-            UnhookWindowsHookEx(windowHook);
+-        }
+-#   endif
+-    }
+-
+-    void ApplicationWindow::setup(RenderWindow window, Listener *listener, uint32_t threadId) {
+-        assert(listener != nullptr);
+-
+-        this->listener = listener;
+-
+-        windowHandle = window;
+-
+-#   if defined(RT64_SDL_WINDOW_VULKAN)
+-        sdlWindow = window;
+-#   endif
+-
+-#   if defined(__APPLE__)
+-        windowWrapper = std::make_unique<CocoaWindow>(window.window);
+-#   endif
+-
+-        if (listener->usesWindowMessageFilter()) {
+-            if ((sdlWindow == nullptr) && SDL_WasInit(SDL_INIT_VIDEO)) {
+-                // We'd normally install the event filter here, but Mupen does not set its own event filter
+-                // until much later. Instead, we delegate this to the first time a screen update is sent.
+-                // FIXME: We attempt to get the first window created by SDL2. This can be improved later
+-                // by actually passing the SDL_Window handle through as a parameter.
+-                sdlWindow = SDL_GetWindowFromID(1);
+-            }
+-
+-            if (sdlWindow == nullptr) {
+-#           ifdef _WIN32
+-                assert(HookedApplicationWindow == nullptr);
+-                assert(threadId != 0);
+-                windowHook = SetWindowsHookEx(WH_GETMESSAGE, &windowHookCallback, NULL, threadId);
+-                HookedApplicationWindow = this;
+-#           endif
+-            }
+-        }
+-    }
+-
+-    void ApplicationWindow::setup(const char *windowTitle, Listener *listener) {
+-        assert(windowTitle != nullptr);
+-
+-        // Find the right window dimension and placement.
+-        const int Width = 1280;
+-        const int Height = 720;
+-        struct {
+-            uint32_t left, top, width, height;
+-        } bounds{};
+-
+-#   if defined(_WIN32)
+-        SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
+-
+-        RECT rect;
+-        UINT dwStyle = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+-        rect.left = (GetSystemMetrics(SM_CXSCREEN) - Width) / 2;
+-        rect.top = (GetSystemMetrics(SM_CYSCREEN) - Height) / 2;
+-        rect.right = rect.left + Width;
+-        rect.bottom = rect.top + Height;
+-        AdjustWindowRectEx(&rect, dwStyle, 0, 0);
+-        bounds.left = rect.left;
+-        bounds.top = rect.top;
+-        bounds.width = rect.right - rect.left;
+-        bounds.height = rect.bottom - rect.top;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
+-#   elif defined(__linux__) || defined(__APPLE__)
+-        if (SDL_VideoInit(nullptr) != 0) {
+-            printf("Failed to init SDL2 video: %s\n", SDL_GetError());
+-            assert(false && "Failed to init SDL2 video");
+-            return;
+-        }
+-        SDL_DisplayMode dm;
+-        if (SDL_GetDesktopDisplayMode(0, &dm) != 0) {
+-            printf("Failed to get SDL2 desktop display mode: %s\n", SDL_GetError());
+-            assert(false && "Failed to get SDL2 desktop display mode");
+-            return;
+-        }
+-        bounds.left = (dm.w - Width) / 2;
+-        bounds.top = (dm.h - Height) / 2;
+-        bounds.width = Width;
+-        bounds.height = Height;
+-#   else
+-        static_assert(false && "Unimplemented");
+-#   endif
+-        uint32_t createFlags = SDL_WINDOW_RESIZABLE;
+-#   if defined(__APPLE__)
+-        createFlags |= SDL_WINDOW_METAL;
+-#   endif
+-
+-        // Create window.
+-        uint32_t flags = SDL_WINDOW_RESIZABLE;
+-        # if defined(__APPLE__)
+-        flags |= SDL_WINDOW_METAL;
+-        # elif defined(RT64_SDL_WINDOW_VULKAN)
+-        flags |= SDL_WINDOW_VULKAN;
+-        #endif
+-        sdlWindow = SDL_CreateWindow(windowTitle, bounds.left, bounds.top, bounds.width, bounds.height, flags);
+-        assert((sdlWindow != nullptr) && "Failed to open window with SDL");
+-
+-        // Get native window handles from the window.
+-        SDL_SysWMinfo wmInfo;
+-        SDL_VERSION(&wmInfo.version);
+-        SDL_GetWindowWMInfo(sdlWindow, &wmInfo);
+-#   if defined(_WIN32)
+-        windowHandle = wmInfo.info.win.window;
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
+-        windowHandle = sdlWindow;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
+-#   elif defined(__linux__)
+-        windowHandle.display = wmInfo.info.x11.display;
+-        windowHandle.window = wmInfo.info.x11.window;
+-#   elif defined(__APPLE__)
+-        windowHandle.window = sdlWindow;
+-        SDL_MetalView view = SDL_Metal_CreateView(sdlWindow);
+-        windowHandle.view = SDL_Metal_GetLayer(view);
+-#   else
+-        static_assert(false && "Unimplemented");
+-#   endif
+-
+-#   ifdef _WIN32
+-        setup(windowHandle, listener, GetCurrentThreadId());
+-#   elif defined(__APPLE__)
+-        uint64_t tid;
+-        pthread_threadid_np(nullptr, &tid);
+-        setup(windowHandle, listener, tid);
+-#   else
+-        setup(windowHandle, listener, pthread_self());
+-#   endif
+-    }
+-
+-    void ApplicationWindow::setFullScreen(bool newFullScreen) {
+-        if (newFullScreen == fullScreen) {
+-            return;
+-        }
+-
+-#   ifdef _WIN32
+-        if (newFullScreen) {
+-            // Save if window is maximized or not
+-            WINDOWPLACEMENT windowPlacement;
+-            windowPlacement.length = sizeof(WINDOWPLACEMENT);
+-            GetWindowPlacement(windowHandle, &windowPlacement);
+-            lastMaximizedState = windowPlacement.showCmd == SW_SHOWMAXIMIZED;
+-
+-            // Save window position and size if the window is not maximized
+-            GetWindowRect(windowHandle, &lastWindowRect);
+-
+-            // Get in which monitor the window is
+-            HMONITOR hmonitor = MonitorFromWindow(windowHandle, MONITOR_DEFAULTTONEAREST);
+-
+-            // Get info from that monitor
+-            MONITORINFOEX monitorInfo;
+-            monitorInfo.cbSize = sizeof(MONITORINFOEX);
+-            GetMonitorInfo(hmonitor, &monitorInfo);
+-            RECT r = monitorInfo.rcMonitor;
+-
+-            // Set borderless full screen to that monitor
+-            LONG_PTR lStyle = GetWindowLongPtr(windowHandle, GWL_STYLE);
+-            lStyle = (lStyle | WS_VISIBLE | WS_POPUP) & ~WS_OVERLAPPEDWINDOW;
+-            SetWindowLongPtr(windowHandle, GWL_STYLE, lStyle);
+-            SetWindowPos(windowHandle, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED);
+-            if (windowMenu != nullptr) {
+-                SetMenu(windowHandle, nullptr);
+-            }
+-        }
+-        else {
+-            // Set in window mode with the last saved position and size.
+-            LONG_PTR lStyle = GetWindowLongPtr(windowHandle, GWL_STYLE);
+-            lStyle = (lStyle | WS_VISIBLE | WS_OVERLAPPEDWINDOW) & ~WS_POPUP;
+-            SetWindowLongPtr(windowHandle, GWL_STYLE, lStyle);
+-
+-            if (lastMaximizedState) {
+-                SetWindowPos(windowHandle, NULL, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE);
+-                ShowWindow(windowHandle, SW_MAXIMIZE);
+-            }
+-            else {
+-                const RECT &r = lastWindowRect;
+-                SetWindowPos(windowHandle, NULL, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_FRAMECHANGED);
+-                ShowWindow(windowHandle, SW_RESTORE);
+-            }
+-
+-            if (windowMenu != nullptr) {
+-                SetMenu(windowHandle, windowMenu);
+-            }
+-        }
+-
+-        fullScreen = newFullScreen;
+-#   elif defined(__APPLE__)
+-        windowWrapper->toggleFullscreen();
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
+-        if (newFullScreen) {
+-            SDL_SetWindowFullscreen(windowHandle, SDL_WINDOW_FULLSCREEN_DESKTOP);
+-        } else {
+-            SDL_SetWindowFullscreen(windowHandle, 0);
+-        }
+-        fullScreen = newFullScreen;
+-#   endif
+-    }
+-
+-    void ApplicationWindow::makeResizable() {
+-#   ifdef _WIN32
+-        LONG_PTR lStyle = GetWindowLongPtr(windowHandle, GWL_STYLE);
+-        windowMenu = GetMenu(windowHandle);
+-        lStyle |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+-        SetWindowLongPtr(windowHandle, GWL_STYLE, lStyle);
+-#   endif
+-    }
+-
+-    void ApplicationWindow::detectRefreshRate() {
+-#   if defined(_WIN32)
+-        HMONITOR monitor = MonitorFromWindow(windowHandle, MONITOR_DEFAULTTONEAREST);
+-        MONITORINFOEX info = {};
+-        info.cbSize = sizeof(info);
+-        if (!GetMonitorInfo(monitor, &info)) {
+-            fprintf(stderr, "GetMonitorInfo failed.\n");
+-            return;
+-        }
+-
+-        DEVMODE displayMode = {};
+-        displayMode.dmSize = sizeof(DEVMODE);
+-        if (!EnumDisplaySettings(info.szDevice, ENUM_CURRENT_SETTINGS, &displayMode)) {
+-            fprintf(stderr, "EnumDisplaySettings failed.\n");
+-            return;
+-        }
+-
+-        if (displayMode.dmDisplayFlags & DM_INTERLACED) {
+-            // Interlaced modes report the refresh rate as half of what the actual refresh rate is.
+-            refreshRate = displayMode.dmDisplayFrequency * 2;
+-        }
+-        else {
+-            refreshRate = displayMode.dmDisplayFrequency;
+-        }
+-
+-        // FIXME: This function truncates refresh rates that'd otherwise round to the correct rate in most cases.
+-        // This hack will fix most common cases where refresh rates divisble by 10 are truncated to the wrong value.
+-        // This can be removed when a more accurate way to query the refresh rate of the monitor is found.
+-        if ((refreshRate % 10) == 9) {
+-            refreshRate++;
+-        }
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
+-        int displayIndex = SDL_GetWindowDisplayIndex(windowHandle);
+-        if (displayIndex < 0) {
+-            fprintf(stderr, "SDL_GetWindowDisplayIndex failed. Error: %s.\n", SDL_GetError());
+-            return;
+-        }
+-
+-        SDL_DisplayMode displayMode = {};
+-        int modeResult = SDL_GetCurrentDisplayMode(displayIndex, &displayMode);
+-        if (modeResult != 0) {
+-            fprintf(stderr, "SDL_GetCurrentDisplayMode failed. Error: %s.\n", SDL_GetError());
+-            return;
+-        }
+-
+-        refreshRate = displayMode.refresh_rate;
+-#   elif defined(__linux__)
+-        // Sourced from: https://stackoverflow.com/a/66865623
+-        XRRScreenResources *screenResources = XRRGetScreenResources(windowHandle.display, windowHandle.window);
+-        if (screenResources == nullptr) {
+-            fprintf(stderr, "XRRGetScreenResources failed.\n");
+-            return;
+-        }
+-
+-        RRMode activeModeID = 0;
+-        for (int i = 0; i < screenResources->ncrtc; ++i) {
+-            XRRCrtcInfo *crtcInfo = XRRGetCrtcInfo(windowHandle.display, screenResources, screenResources->crtcs[i]);
+-            if (crtcInfo != nullptr) {
+-                if (crtcInfo->mode != 0L) {
+-                    activeModeID = crtcInfo->mode;
+-                }
+-
+-                XRRFreeCrtcInfo(crtcInfo);
+-            }
+-        }
+-
+-        if (activeModeID == 0L) {
+-            fprintf(stderr, "Unable to find active mode through XRRGetScreenResources and XRRGetCrtcInfo.\n");
+-            XRRFreeScreenResources(screenResources);
+-            return;
+-        }
+-
+-        for (int i = 0; i < screenResources->nmode; ++i) {
+-            XRRModeInfo modeInfo = screenResources->modes[i];
+-            if (modeInfo.id == activeModeID) {
+-                refreshRate = std::lround(modeInfo.dotClock / double(modeInfo.hTotal * modeInfo.vTotal));
+-                break;
+-            }
+-        }
+-
+-        XRRFreeScreenResources(screenResources);
+-#   elif defined(__APPLE__)
+-        refreshRate = windowWrapper->getRefreshRate();
+-#   endif
+-    }
+-
+-    uint32_t ApplicationWindow::getRefreshRate() const {
+-        return refreshRate;
+-    }
+-
+-    bool ApplicationWindow::detectWindowMoved() {
+-        int32_t newWindowLeft = INT32_MAX;
+-        int32_t newWindowTop = INT32_MAX;
+-
+-#   if defined(_WIN64)
+-        RECT rect;
+-        GetWindowRect(windowHandle, &rect);
+-        newWindowLeft = rect.left;
+-        newWindowTop = rect.top;
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
+-        SDL_GetWindowPosition(windowHandle, &newWindowLeft, &newWindowTop);
+-#   elif defined(__linux__)
+-        XWindowAttributes attributes;
+-        XGetWindowAttributes(windowHandle.display, windowHandle.window, &attributes);
+-        newWindowLeft = attributes.x;
+-        newWindowTop = attributes.y;
+-#   elif defined(__APPLE__)
+-        CocoaWindowAttributes attributes;
+-        windowWrapper->getWindowAttributes(&attributes);
+-        newWindowLeft = attributes.x;
+-        newWindowTop = attributes.y;
+-#   endif
+-
+-        if ((windowLeft != newWindowLeft) || (windowTop != newWindowTop)) {
+-            windowLeft = newWindowLeft;
+-            windowTop = newWindowTop;
+-            return true;
+-        }
+-        else {
+-            return false;
+-        }
+-    }
+-
+-#ifdef _WIN32
+-    void ApplicationWindow::windowMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+-        if (listener->windowMessageFilter(message, wParam, lParam)) {
+-            return;
+-        }
+-
+-        switch (message) {
+-        case WM_CLOSE:
+-            PostQuitMessage(0);
+-            break;
+-        };
+-    }
+-
+-    LRESULT CALLBACK ApplicationWindow::windowHookCallback(int nCode, WPARAM wParam, LPARAM lParam) {
+-        if ((nCode >= 0) && (wParam == PM_REMOVE)) {
+-            const MSG &msg = *reinterpret_cast<MSG *>(lParam);
+-            HookedApplicationWindow->windowMessage(msg.message, msg.wParam, msg.lParam);
+-        }
+-
+-        return CallNextHookEx(NULL, nCode, wParam, lParam);
+-    }
+-#endif
+-
+-    void ApplicationWindow::sdlCheckFilterInstallation() {
+-        if (listener->usesWindowMessageFilter() && !sdlEventFilterInstalled && (sdlWindow != nullptr)) {
+-            if (!SDL_GetEventFilter(&sdlEventFilterStored, &sdlEventFilterUserdata)) {
+-                sdlEventFilterStored = nullptr;
+-                sdlEventFilterUserdata = nullptr;
+-            }
+-
+-            SDL_SetEventFilter(&ApplicationWindow::sdlEventFilter, this);
+-            sdlEventFilterInstalled = true;
+-        }
+-    }
+-
+-    int ApplicationWindow::sdlEventFilter(void *userdata, SDL_Event *event) {
+-        // Run it through the listener's event filter. If it's processed by the listener, the event should be filtered.
+-        ApplicationWindow *appWindow = reinterpret_cast<ApplicationWindow *>(userdata);
+-        if (appWindow->listener->sdlEventFilter(event)) {
+-            return 0;
+-        }
+-
+-        // Pass to the event filter that was stored if it exists. Let the original filter determine the result.
+-        if (appWindow->sdlEventFilterStored != nullptr) {
+-            return appWindow->sdlEventFilterStored(appWindow->sdlEventFilterUserdata, event);
+-        }
+-        // The event should not be filtered.
+-        else {
+-            return 1;
+-        }
+-    }
+-};
++ApplicationWindow *ApplicationWindow::HookedApplicationWindow=nullptr;
++ApplicationWindow::ApplicationWindow() {listener=nullptr;}
++ApplicationWindow::~ApplicationWindow()=default;
++void ApplicationWindow::setup(RenderWindow,Listener*,uint32_t) {throw std::runtime_error("Desktop windows are unavailable in Jet Force Gemini XR");}
++void ApplicationWindow::setup(const char*,Listener*) {throw std::runtime_error("Desktop windows are unavailable in Jet Force Gemini XR");}
++void ApplicationWindow::setFullScreen(bool) {}
++void ApplicationWindow::makeResizable() {}
++void ApplicationWindow::detectRefreshRate() {refreshRate=jfgxr::refreshRate();}
++uint32_t ApplicationWindow::getRefreshRate() const {return jfgxr::refreshRate();}
++bool ApplicationWindow::detectWindowMoved() {return false;}
++void ApplicationWindow::sdlCheckFilterInstallation() {}
++int ApplicationWindow::sdlEventFilter(void*,SDL_Event*) {return 1;}
++}
+diff --git a/src/hle/rt64_application_window.h b/src/hle/rt64_application_window.h
+index 73f8222..0c7e70b 100644
+--- a/src/hle/rt64_application_window.h
++++ b/src/hle/rt64_application_window.h
+@@ -6,7 +6,7 @@
+ 
+ #include "common/rt64_plume.h"
+ #ifdef _WIN32
+-#include <Windows.h>
++#include <windows.h>
+ #elif defined(__APPLE__)
+ #include "apple/rt64_apple.h"
+ #include "plume_apple.h"
+diff --git a/src/hle/rt64_draw_call.h b/src/hle/rt64_draw_call.h
+index 73e3c25..66fc7ca 100644
+--- a/src/hle/rt64_draw_call.h
++++ b/src/hle/rt64_draw_call.h
+@@ -71,6 +71,7 @@ namespace RT64 {
+         // Global frame call index.
+         uint32_t uid;
+         uint32_t callIndex;
++        uint32_t jfgXrMode = 0;
+         uint16_t minWorldMatrix;
+         uint16_t maxWorldMatrix;
+         uint32_t triangleCount;
+@@ -161,4 +162,4 @@ namespace RT64 {
+             return (minTexcoord.x <= maxTexcoord.x) && (minTexcoord.y <= maxTexcoord.y);
+         }
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_present_queue.cpp b/src/hle/rt64_present_queue.cpp
+index 38fe102..a615433 100644
+--- a/src/hle/rt64_present_queue.cpp
++++ b/src/hle/rt64_present_queue.cpp
+@@ -503,6 +503,34 @@ namespace RT64 {
+     void PresentQueue::threadLoop() {
+         Thread::setCurrentThreadName("RT64 Present");
+ 
++        if(!ext.swapChain) {
++            // Retire emulated VI presents after the native eye renders finish.
++            // No WSI acquire, desktop drawing, render hooks or presentation.
++            while(presentThreadRunning) {
++                int index=-1;
++                {
++                    std::unique_lock<std::mutex> lock(cursorMutex);
++                    cursorCondition.wait(lock,[&](){return writeCursor!=threadCursor || !presentThreadRunning;});
++                    if(!presentThreadRunning)break;
++                    index=threadCursor;threadCursor=(threadCursor+1)%presents.size();
++                }
++                std::unique_lock<std::mutex> lock(threadMutex);
++                Present &present=presents[index];
++                ext.workloadQueue->waitForWorkloadId(present.workloadId,true);
++                if(!presentThreadRunning)break;
++                skipInterpolation();notifyPresentId(present);
++                if(!present.paused) {
++                    if(!present.fbOperations.empty()) {
++                        const std::scoped_lock poolLock(screenFbChangePoolMutex);
++                        screenFbChangePool.release(present.fbOperations.front().writeChanges.id);
++                        present.fbOperations.clear();
++                    }
++                    threadAdvanceBarrier();
++                }
++            }
++            return;
++        }
++
+         // Create the semaphore the acquire method will use.
+         acquiredSemaphore = ext.device->createCommandSemaphore();
+ 
+diff --git a/src/hle/rt64_projection.cpp b/src/hle/rt64_projection.cpp
+index 84436ee..0bfd97a 100644
+--- a/src/hle/rt64_projection.cpp
++++ b/src/hle/rt64_projection.cpp
+@@ -10,6 +10,7 @@ namespace RT64 {
+     void Projection::reset() {
+         type = Type::None;
+         used = false;
++        jfgXrWorld = false;
+         gameCallCount = 0;
+         pointLightCount = 0;
+         transformsIndex = 0;
+@@ -42,4 +43,4 @@ namespace RT64 {
+             return false;
+         }
+     }
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_projection.h b/src/hle/rt64_projection.h
+index a204f91..3019faa 100644
+--- a/src/hle/rt64_projection.h
++++ b/src/hle/rt64_projection.h
+@@ -28,10 +28,11 @@ namespace RT64 {
+         uint32_t pointLightCount;
+         FixedRect scissorRect;
+         bool used;
++        bool jfgXrWorld = false;
+ 
+         void reset();
+         void addGameCall(const GameCall &gameCall);
+         void addPointLight(const interop::PointLight &light);
+         bool usesViewport() const;
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_rigid_body.cpp b/src/hle/rt64_rigid_body.cpp
+index fd8b3eb..d013e0f 100644
+--- a/src/hle/rt64_rigid_body.cpp
++++ b/src/hle/rt64_rigid_body.cpp
+@@ -3,6 +3,7 @@
+ //
+ 
+ #include "rt64_rigid_body.h"
++#include <cmath>
+ 
+ #include "../include/rt64_extended_gbi.h"
+ #include "common/rt64_math.h"
+diff --git a/src/hle/rt64_rsp.cpp b/src/hle/rt64_rsp.cpp
+index 5443c7d..a136b3e 100644
+--- a/src/hle/rt64_rsp.cpp
++++ b/src/hle/rt64_rsp.cpp
+@@ -3,6 +3,7 @@
+ //
+ 
+ #include "rt64_rsp.h"
++#include "jfg_xr.h"
+ 
+ #include <algorithm>
+ #include <atomic>
+@@ -437,6 +438,11 @@ namespace RT64 {
+                 bonePlace = offsetInBuffer ^ 0x8000u; // apart from the model's own bones (G_DMAOFFSETS-relative)
+             }
+             const uint32_t boneId = parentId ? ((parentId * 2654435761u) ^ (bonePlace * 40503u)) : 0;
++            if(!ontoCamera && parentId && boneId) {
++                float local[16];
++                for(int r=0;r<4;r++)for(int c=0;c<4;c++)local[r*4+c]=loaded[r][c];
++                jfgxr::deriveHandBinding(boneId,parentId,local);
++            }
+             DKR.jfgIds[dst] = ((boneId == G_EX_ID_IGNORE) || (boneId == G_EX_ID_AUTO)) ? 0 : boneId;
+             DKR.jfgHasModel[dst] = ontoCamera || DKR.jfgHasModel[src];
+             if (ontoCamera) {
+@@ -623,6 +629,14 @@ namespace RT64 {
+             group.skewInterpolation = G_EX_COMPONENT_INTERPOLATE;
+             group.perspectiveInterpolation = G_EX_COMPONENT_SKIP;
+         }
++        if(jfgxr::avatarPart(jfgId)==jfgxr::AvatarPart::Tracked) {
++            // Controller-driven parts already have this tick's pose. Blending
++            // them with an earlier avatar animation causes hand/body lag.
++            group.positionInterpolation = G_EX_COMPONENT_SKIP;
++            group.rotationInterpolation = G_EX_COMPONENT_SKIP;
++            group.scaleInterpolation = G_EX_COMPONENT_SKIP;
++            group.skewInterpolation = G_EX_COMPONENT_SKIP;
++        }
+ 
+         extended.modelMatrixIdStackChanged = true;
+ 
+@@ -1189,6 +1203,10 @@ namespace RT64 {
+             uint32_t physicalAddress = modelMatrixPhysicalAddressStack[modelMatrixStackSize - 1];
+             workload.physicalAddressTransformMap.emplace(physicalAddress, uint32_t(worldTransformGroups.size()));
+             worldTransformGroups.emplace_back(extended.curModelMatrixIdGroupIndex);
++            const uint32_t group=extended.curModelMatrixIdGroupIndex;
++            workload.drawData.jfgXrHiddenTransforms.push_back(
++                group<workload.drawData.transformGroups.size() &&
++                jfgxr::avatarPart(workload.drawData.transformGroups[group].matrixId)==jfgxr::AvatarPart::Hidden);
+             worldTransformSegmentedAddresses.emplace_back(modelMatrixSegmentedAddressStack[modelMatrixStackSize - 1]);
+             worldTransformPhysicalAddresses.emplace_back(physicalAddress);
+             worldTransformVertexIndices.emplace_back(workload.drawData.vertexCount());
+@@ -1802,6 +1820,14 @@ namespace RT64 {
+             used[a] = used[b] = used[c] = true;
+         }
+ 
++        // The first-person rig keeps the native arms but excludes head, torso,
++        // legs and their seam triangles. Other objects and held guns keep their
++        // normal geometry. This does not alter simulation or collision.
++        for(uint32_t vertex:globalIndices) {
++            const uint32_t transform=worldIndices[vertex];
++            if(transform<workload.drawData.jfgXrHiddenTransforms.size() &&
++                workload.drawData.jfgXrHiddenTransforms[transform])return;
++        }
+         // Indicates the vertex has been used in a tri. Whatever routines modify the vertex afterwards must use a new index instead.
+ 
+         for (int i = 0; i < 3; i++) {
+diff --git a/src/hle/rt64_state.cpp b/src/hle/rt64_state.cpp
+index c5a11b4..6b3dd71 100644
+--- a/src/hle/rt64_state.cpp
++++ b/src/hle/rt64_state.cpp
+@@ -1,3 +1,5 @@
++#include "jfg_xr.h"
++#include "xr_draw.h"
+ //
+ // RT64
+ //
+@@ -215,6 +217,7 @@ namespace RT64 {
+     }
+ 
+     void State::reset() {
++        jfgXrDrawMode = 0;
+         displayListAddress = 0;
+         displayListCounter = 0;
+         rdramCheckPending = true;
+@@ -613,6 +616,7 @@ namespace RT64 {
+         drawCall.NoN = rsp->NoN;
+         drawCall.drawStatusChanges = drawStatus.changed;
+         drawCall.callIndex = workload.gameCallCount++;
++        drawCall.jfgXrMode = jfgXrDrawMode;
+ 
+         // Add the draw call to the FB pair.
+         GameCall gameCall;
+@@ -1428,7 +1432,9 @@ namespace RT64 {
+                     const bool oneCycleHardwareBug = (callDesc.otherMode.cycleType() == G_CYC_1CYCLE);
+                     auto &flags = shaderDesc.flags;
+                     flags.rect = (proj.type == Projection::Type::Rectangle);
+-                    flags.linearFiltering = linearFiltering || forceLinearFiltering;
++                    const bool nativeXrUi=jfgxr::nativeUiSampling(jfgxr::enabled(),flags.rect,
++                        callDesc.otherMode.zCmp(),callDesc.otherMode.zUpd());
++                    flags.linearFiltering = linearFiltering || forceLinearFiltering || nativeXrUi;
+                     flags.usesTexture0 = callDesc.colorCombiner.usesTexture(callDesc.otherMode, 0, oneCycleHardwareBug);
+                     flags.usesTexture1 = callDesc.colorCombiner.usesTexture(callDesc.otherMode, 1, oneCycleHardwareBug);
+                     flags.blenderApproximation = static_cast<unsigned>(blenderEmuReqs.approximateEmulation);
+@@ -1442,7 +1448,10 @@ namespace RT64 {
+                     // Set whether the texture coordinates should be scaled or not based on the current configuration mode and the extended GBI flags.
+                     const bool forcedUpscale2D = (flags.rect == 0) || (upscale2D == UserConfiguration::Upscale2D::All) || callDesc.extendedFlags.forceUpscale2D;
+                     const bool upscaleIfScaledRect = (upscale2D == UserConfiguration::Upscale2D::ScaledOnly) && flags.rect && !callDesc.identityRectScale();
+-                    flags.upscale2D = forcedUpscale2D || upscaleIfScaledRect;
++                    // Identity-scaled glyph rectangles are still transformed
++                    // onto the XR panel. Native screen-grid snapping would use
++                    // post-warp eye coordinates and erase rows/columns.
++                    flags.upscale2D = forcedUpscale2D || upscaleIfScaledRect || nativeXrUi;
+ 
+                     if (proj.usesViewport()) {
+                         flags.culling = (callDesc.geometryMode & callDesc.cullBothMask) != 0;
+diff --git a/src/hle/rt64_state.h b/src/hle/rt64_state.h
+index 829e39a..80b080b 100644
+--- a/src/hle/rt64_state.h
++++ b/src/hle/rt64_state.h
+@@ -109,6 +109,7 @@ namespace RT64 {
+         std::vector<Framebuffer *> differentFbs;
+         GameConfiguration gameConfig;
+         uint32_t displayListAddress;
++        uint32_t jfgXrDrawMode = 0;
+         uint64_t displayListCounter;
+         bool rdramCheckPending;
+         uint32_t lastWorkloadIndex;
+@@ -208,4 +209,4 @@ namespace RT64 {
+         void clearExtended();
+         void updateRenderFlagSampleCount();
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_workload.cpp b/src/hle/rt64_workload.cpp
+index c314cca..e1737c1 100644
+--- a/src/hle/rt64_workload.cpp
++++ b/src/hle/rt64_workload.cpp
+@@ -93,6 +93,7 @@ namespace RT64 {
+         drawData.triColorFloats.clear();
+         drawData.transformGroups.clear();
+         drawData.worldTransformGroups.clear();
++        drawData.jfgXrHiddenTransforms.clear();
+         drawData.viewProjTransformGroups.clear();
+         drawData.worldTransformSegmentedAddresses.clear();
+         drawData.worldTransformPhysicalAddresses.clear();
+@@ -110,6 +111,7 @@ namespace RT64 {
+         drawData.worldTransforms.push_back(interop::float4x4::identity());
+         drawData.transformGroups.push_back(TransformGroup());
+         drawData.worldTransformGroups.push_back(0);
++        drawData.jfgXrHiddenTransforms.push_back(0);
+         drawData.viewProjTransformGroups.push_back(0);
+         drawData.worldTransformSegmentedAddresses.push_back(0);
+         drawData.worldTransformPhysicalAddresses.push_back(0);
+@@ -325,4 +327,4 @@ namespace RT64 {
+             return 0;
+         }
+     }
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_workload.h b/src/hle/rt64_workload.h
+index 5bd6b80..28bb7ad 100644
+--- a/src/hle/rt64_workload.h
++++ b/src/hle/rt64_workload.h
+@@ -78,6 +78,7 @@ namespace RT64 {
+         std::vector<float> triColorFloats;
+         std::vector<TransformGroup> transformGroups;
+         std::vector<uint32_t> worldTransformGroups;
++        std::vector<uint8_t> jfgXrHiddenTransforms;
+         std::vector<uint32_t> viewProjTransformGroups;
+         std::vector<uint32_t> worldTransformSegmentedAddresses;
+         std::vector<uint32_t> worldTransformPhysicalAddresses;
+@@ -260,4 +261,4 @@ namespace RT64 {
+         bool addFramebufferPair(uint32_t colorAddress, uint8_t colorFmt, uint8_t colorSiz, uint16_t colorWidth, uint32_t depthAddress);
+         int currentFramebufferPairIndex() const;
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/hle/rt64_workload_queue.cpp b/src/hle/rt64_workload_queue.cpp
+index 92b2ccd..f433f00 100644
+--- a/src/hle/rt64_workload_queue.cpp
++++ b/src/hle/rt64_workload_queue.cpp
+@@ -1,3 +1,5 @@
++#include "jfg_xr.h"
++#include "xr_ui.h"
+ //
+ // RT64
+ //
+@@ -38,6 +40,7 @@ namespace RT64 {
          }
  
          workloadIdCondition.notify_all();
@@ -15,7 +1401,24 @@ index 92b2ccd..2269864 100644
      }
  
      void WorkloadQueue::reset() {
-@@ -258,6 +260,7 @@ namespace RT64 {
+@@ -229,12 +232,15 @@ namespace RT64 {
+             break;
+         }
+ 
+-        uint32_t msaaSampleCount = ext.sharedResources->userConfig.msaaSampleCount();
++        // Eye targets are single-sample. Keep their depth attachments and
++        // output override in the same mode when a desktop MSAA option changes.
++        uint32_t msaaSampleCount = jfgxr::enabled() ? 1 : ext.sharedResources->userConfig.msaaSampleCount();
+ 
+         // Build the resolution scale vector from the configuration.
+         workloadConfig.aspectRatioScale = workloadConfig.aspectRatioTarget / workloadConfig.aspectRatioSource;
+         workloadConfig.resolutionScale = { resolutionMultiplier * workloadConfig.aspectRatioScale, resolutionMultiplier };
+         workloadConfig.downsampleMultiplier = ext.sharedResources->userConfig.downsampleMultiplier;
++        workloadConfig.nearestOutput = ext.sharedResources->userConfig.filtering==UserConfiguration::Filtering::Nearest;
+         ext.sharedResources->resolutionScale = workloadConfig.resolutionScale;
+ 
+         // Find the target refresh rate from the configuration.
+@@ -258,6 +264,7 @@ namespace RT64 {
              break;
          }
  
@@ -23,16 +1426,48 @@ index 92b2ccd..2269864 100644
          // Store the rate that was chosen for the configuration.
          ext.sharedResources->targetRate = workloadConfig.targetRate;
  
-@@ -342,7 +345,7 @@ namespace RT64 {
+@@ -342,7 +349,9 @@ namespace RT64 {
          rendererCPUProfiler.start();
  
          const bool aspectRatioAdjustment = (abs(workloadConfig.aspectRatioScale - 1.0f) > 1e-6f);
 -        const bool processProjections = aspectRatioAdjustment || prevFrame.matched|| curFrame.isDebuggerCameraEnabled(*this);
-+        const bool processProjections = jfgxr::renderingEye() || aspectRatioAdjustment || prevFrame.matched|| curFrame.isDebuggerCameraEnabled(*this);
++        // The desktop pass must restore the source matrices after both eyes,
++        // including at the original aspect ratio and without interpolation.
++        const bool processProjections = jfgxr::enabled() || aspectRatioAdjustment || prevFrame.matched|| curFrame.isDebuggerCameraEnabled(*this);
          bool uploadProjections = false;
          if (processProjections) {
              ProjectionProcessor::ProcessParams projParams;
-@@ -1230,7 +1233,7 @@ namespace RT64 {
+@@ -358,7 +367,7 @@ namespace RT64 {
+             uploadProjections = true;
+         }
+ 
+-        const bool processTransforms = prevFrame.matched;
++        const bool processTransforms = jfgxr::enabled() || prevFrame.matched;
+         bool uploadTransforms = false;
+         if (processTransforms) {
+             TransformProcessor::ProcessParams transformParams;
+@@ -1102,7 +1111,10 @@ namespace RT64 {
+                         }
+ 
+                         Framebuffer *interpolationFb = fbManager.find(colorImg.address);
+-                        if ((interpolationFb != nullptr) && interpolationFb->interpolationEnabled) {
++                        // OpenXR consumes the main color image itself. There is
++                        // no desktop VI presenter to set interpolationEnabled.
++                        const bool xrMain = jfgxr::enabled() && colorImg.width >= workload.viFbSize.x;
++                        if ((interpolationFb != nullptr) && (xrMain || interpolationFb->interpolationEnabled)) {
+                             interpolationTargetKey.fbType = Framebuffer::Type::Color;
+                             interpolationTargetKey.address = fbPair.colorImage.address;
+                             interpolationTargetKey.siz = fbPair.colorImage.siz;
+@@ -1192,7 +1204,7 @@ namespace RT64 {
+                 }
+                 // If the same set of counters is used, we wait until the presentation of its targets is finished so the targets are available to use. Waiting is ignored
+                 // if the frame counter has never presented anything yet, as it'll only be a valid value if the previous present event actually did something.
+-                else if (generateInterpolatedFrames) {
++                else if (generateInterpolatedFrames && !jfgxr::enabled()) {
+                     std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+                     ext.sharedResources->interpolatedCondition.wait(interpolatedLock, [&]() {
+                         return (prevFrameCounters.presented == 0) || (prevFrameCounters.presented >= prevFrameCounters.available);
+@@ -1230,7 +1242,7 @@ namespace RT64 {
                  int64_t renderTimeTotalMicro = 0;
                  for (uint32_t frame = 0; (frame < displayFrames) && !skipWorkloadNow; frame++) {
                      // Evaluate if this frame should be skipped. Measure the current time and compare it to what frame is estimated should be have been rendered by now.
@@ -41,31 +1476,79 @@ index 92b2ccd..2269864 100644
                          const int64_t currentTimeMicro = workloadTimer.elapsedMicroseconds() - setupTimeMicro;
                          const int64_t expectedTimeMicro = frame * maxTimePerFrameMicro;
                          const int64_t measuredFrameMicro = renderTimeTotalMicro / framesRendered;
-@@ -1287,6 +1290,19 @@ namespace RT64 {
+@@ -1253,7 +1265,7 @@ namespace RT64 {
+                             overrideTarget = interpolatedTargets[targetIndex].get();
+                             overrideModifier = (targetIndex + 1);
+ 
+-                            if (useDifferentCounters && (prevFrameCounters.available > 0) && (targetIndex < prevFrameCounters.available)) {
++                            if (!jfgxr::enabled() && useDifferentCounters && (prevFrameCounters.available > 0) && (targetIndex < prevFrameCounters.available)) {
+                                 // Wait until the target has finished presenting if the alternate frame counter (used by the present queue) is making use of this target.
+                                 std::unique_lock<std::mutex> interpolatedLock(ext.sharedResources->interpolatedMutex);
+                                 ext.sharedResources->interpolatedCondition.wait(interpolatedLock, [&]() {
+@@ -1287,8 +1299,48 @@ namespace RT64 {
                      }
  
                      int64_t renderTimeMicro = workloadTimer.elapsedMicroseconds();
+-                    threadRenderFrame(curFrame, prevFrame, workloadConfig, workload.debuggerRenderer, workload.debuggerCamera, curFrameWeight, prevFrameWeight, deltaTimeMs,
+-                        interpolationTargetKey, interpolationTargetFbPairIndex, overrideTarget, overrideModifier, velocityUploaderUsed, uploadExtras, tileInterpolationUsed, lookAtInterpolationUsed);
 +                    // Replay one game state for both eyes. Never advance simulation per eye.
 +                    if (!jfgOffscreen && interpolationTargetFbPairIndex >= 0 && jfgxr::begin(ext.workloadGraphicsWorker)) {
 +                        try {
 +                        for(int eye=0;eye<2;eye++) {
 +                            if(!xrTargets[eye])xrTargets[eye]=std::make_unique<RenderTarget>(interpolationTargetKey.address,Framebuffer::Type::Color,RenderMultisampling(),usesHDR);
-+                            jfgxr::eye(eye);
-+                            threadRenderFrame(curFrame,prevFrame,workloadConfig,workload.debuggerRenderer,workload.debuggerCamera,curFrameWeight,prevFrameWeight,deltaTimeMs,
++                            xrTargets[eye]->addressForName = interpolationTargetKey.address;
++                            jfgxr::eye(eye, xrTargets[eye].get(), interpolationTargetKey.address);
++                            unsigned eyeWidth, eyeHeight;
++                            jfgxr::renderSize(eyeWidth, eyeHeight);
++                            auto eyeConfig = workloadConfig;
++                            const auto viSize = workload.viFbSize;
++                            const float nativeWidth = viSize[0] ? float(viSize[0]) : 320.f;
++                            const float nativeHeight = viSize[1] ? float(viSize[1]) : 240.f;
++                            eyeConfig.aspectRatioSource = nativeWidth / nativeHeight;
++                            eyeConfig.aspectRatioTarget = float(eyeWidth) / float(eyeHeight);
++                            eyeConfig.aspectRatioScale = eyeConfig.aspectRatioTarget / eyeConfig.aspectRatioSource;
++                            eyeConfig.resolutionScale = {float(eyeWidth) / nativeWidth, float(eyeHeight) / nativeHeight};
++                            eyeConfig.downsampleMultiplier = 1;
++                            threadRenderFrame(curFrame,prevFrame,eyeConfig,workload.debuggerRenderer,workload.debuggerCamera,curFrameWeight,prevFrameWeight,deltaTimeMs,
 +                                interpolationTargetKey,interpolationTargetFbPairIndex,xrTargets[eye].get(),1000+eye,velocityUploaderUsed,uploadExtras,tileInterpolationUsed,lookAtInterpolationUsed);
-+                            { std::scoped_lock<std::mutex> lock(workerMutex); jfgxr::copyEye(ext.workloadGraphicsWorker,xrTargets[eye].get(),eye); }
++                            uint32_t sourceWidth, sourceHeight, sourceMisalign;
++                            RenderTarget::computeScaledSize(uint32_t(nativeWidth), uint32_t(nativeHeight), xrTargets[eye]->resolutionScale, sourceWidth, sourceHeight, sourceMisalign);
++                            jfgxr::sourceSize(sourceWidth, sourceHeight);
++                            { std::scoped_lock<std::mutex> lock(workerMutex); jfgxr::copyEye(ext.workloadGraphicsWorker,xrTargets[eye].get(),eye,workloadConfig.nearestOutput); }
 +                        }
++
 +                        jfgxr::end();
 +                        } catch(const std::exception& e) { fprintf(stderr,"[XR] stereo stopped: %s\n",e.what());jfgxr::abortFrame(); }
 +                    }
-                     threadRenderFrame(curFrame, prevFrame, workloadConfig, workload.debuggerRenderer, workload.debuggerCamera, curFrameWeight, prevFrameWeight, deltaTimeMs,
-                         interpolationTargetKey, interpolationTargetFbPairIndex, overrideTarget, overrideModifier, velocityUploaderUsed, uploadExtras, tileInterpolationUsed, lookAtInterpolationUsed);
++                    if(jfgOffscreen || interpolationTargetFbPairIndex<0) {
++                        auto offscreenConfig=workloadConfig;
++                        if(jfgOffscreen) {
++                            // Icons rendered into intermediate framebuffers must
++                            // not be cached at desktop/windowless native scale.
++                            const auto size=workload.viFbSize;
++                            offscreenConfig.resolutionScale.x=std::max(float(offscreenConfig.resolutionScale.x),float(jfgxr::hudWidth)/float(size.x?size.x:320));
++                            offscreenConfig.resolutionScale.y=std::max(float(offscreenConfig.resolutionScale.y),float(jfgxr::hudHeight)/float(size.y?size.y:240));
++                            offscreenConfig.downsampleMultiplier=1;
++                        }
++                        threadRenderFrame(curFrame, prevFrame, offscreenConfig, workload.debuggerRenderer, workload.debuggerCamera, curFrameWeight, prevFrameWeight, deltaTimeMs,
++                            interpolationTargetKey, interpolationTargetFbPairIndex, overrideTarget, overrideModifier, velocityUploaderUsed, uploadExtras, tileInterpolationUsed, lookAtInterpolationUsed);
++                    }
  
+                     // Add total time the frame took to render.
+                     renderTimeTotalMicro += workloadTimer.elapsedMicroseconds() - renderTimeMicro;
 diff --git a/src/hle/rt64_workload_queue.h b/src/hle/rt64_workload_queue.h
-index 6a13258..ddccf23 100644
+index 6a13258..e119984 100644
 --- a/src/hle/rt64_workload_queue.h
 +++ b/src/hle/rt64_workload_queue.h
-@@ -108,6 +108,7 @@ namespace RT64 {
+@@ -50,6 +50,7 @@ namespace RT64 {
+         struct WorkloadConfiguration {
+             hlslpp::float2 resolutionScale = 1.0f;
+             uint32_t downsampleMultiplier = 1;
++            bool nearestOutput = false;
+             bool raytracingEnabled = false;
+             float aspectRatioSource = 1.0f;
+             float aspectRatioTarget = 1.0f;
+@@ -108,6 +109,7 @@ namespace RT64 {
          int32_t jfgHeldFrameIndex = -1; // the screen frame kept while an off-screen workload runs, -1 = none
          bool jfgBarrierOwed = false;    // its workload is kept too: the barrier advances twice after the next one
  
@@ -73,8 +1556,251 @@ index 6a13258..ddccf23 100644
          WorkloadQueue();
          ~WorkloadQueue();
          void reset();
+@@ -130,4 +132,4 @@ namespace RT64 {
+         void renderThreadLoop();
+         void idleThreadLoop();
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/render/rt64_framebuffer_renderer.cpp b/src/render/rt64_framebuffer_renderer.cpp
+index efee273..4873f28 100644
+--- a/src/render/rt64_framebuffer_renderer.cpp
++++ b/src/render/rt64_framebuffer_renderer.cpp
+@@ -1,3 +1,5 @@
++#include "jfg_xr.h"
++#include "xr_draw.h"
+ //
+ // RT64
+ //
+@@ -502,7 +504,29 @@ namespace RT64 {
+         bool previousVertexTestZ = false;
+         const RenderPipeline *previousPipeline = nullptr;
+         RenderRect previousScissor;
+-        interop::RasterParams rasterParams;
++        interop::RasterParams rasterParams = {};
++        float hudMatrix[16];
++        const bool xrHud = jfgxr::hudTarget(fbStorage->colorTarget) && jfgxr::hudTransform(hudMatrix);
++        if (xrHud) {
++            for (int r=0;r<4;r++)for(int c=0;c<4;c++)
++                rasterParams.xrHudRows[r][c] = hudMatrix[r*4+c];
++        }
++        auto hudRect = [&](const RenderRect &rect) {
++            const float width = framebuffer.viewport.width, height = framebuffer.viewport.height;
++            float loX = width, loY = height, hiX = 0, hiY = 0;
++            for (int i=0;i<4;i++) {
++                const float x = 2.f * float(i&1 ? rect.right : rect.left) / width - 1.f;
++                const float y = 1.f - 2.f * float(i&2 ? rect.bottom : rect.top) / height;
++                const float w = x*hudMatrix[3] + y*hudMatrix[7] + hudMatrix[15];
++                if (w <= 0) return RenderRect();
++                const float px = ((x*hudMatrix[0] + y*hudMatrix[4] + hudMatrix[12])/w + 1.f)*width*.5f;
++                const float py = (1.f - (x*hudMatrix[1] + y*hudMatrix[5] + hudMatrix[13])/w)*height*.5f;
++                loX=std::min(loX,px);hiX=std::max(hiX,px);
++                loY=std::min(loY,py);hiY=std::max(hiY,py);
++            }
++            return RenderRect(std::max(0,int(std::floor(loX))), std::max(0,int(std::floor(loY))),
++                              std::min(int(width),int(std::ceil(hiX))), std::min(int(height),int(std::ceil(hiY))));
++        };
+         RenderDescriptorSet *descRealFbSet = framebuffer.descRealFbSet->get();
+         RenderDescriptorSet *descDummyFbSet = framebuffer.descDummyFbSet->get();
+ 
+@@ -553,16 +577,16 @@ namespace RT64 {
+         // the depth test still hides them behind anything in front, so only their blending over later opaque draws
+         // behind them changes. Nothing is moved across a fill (clear) or a draw without depth test.
+         const bool targetsPresent = (fbStorage->colorTarget != nullptr) && (fbStorage->depthTarget != nullptr);
+-        const bool ssaoOn = (rt64_jfg_ssao.load(std::memory_order_relaxed) != 0) && (ssaoPipeline != nullptr) && (ssaoBlurPipeline != nullptr) &&
++        const bool ssaoOn = !jfgxr::renderingEye() && (rt64_jfg_ssao.load(std::memory_order_relaxed) != 0) && (ssaoPipeline != nullptr) && (ssaoBlurPipeline != nullptr) &&
+             targetsPresent && (fbStorage->colorWriteDepthRead != nullptr);
+-        const bool bloomOn = (rt64_jfg_bloom.load(std::memory_order_relaxed) != 0) && (bloomCompositePipeline != nullptr) &&
++        const bool bloomOn = !jfgxr::renderingEye() && (rt64_jfg_bloom.load(std::memory_order_relaxed) != 0) && (bloomCompositePipeline != nullptr) &&
+             targetsPresent && (fbStorage->colorWriteDepthRead != nullptr);
+         // JFG PORT: fog and vignette only on the game's own picture during play: not on the pause screen (its backdrop is drawn
+         // once and kept, so it would get them again every frame) and not on smaller 3D scenes (decided after the scan below).
+         const bool jfgPausedAny = (rt64_jfg_paused.load(std::memory_order_relaxed) != 0);
+-        const bool fogWanted = (rt64_jfg_fog.load(std::memory_order_relaxed) != 0) &&
++        const bool fogWanted = !jfgxr::renderingEye() && (rt64_jfg_fog.load(std::memory_order_relaxed) != 0) &&
+             (fogPipeline != nullptr) && targetsPresent && (fbStorage->colorWriteDepthRead != nullptr) && !jfgPausedAny;
+-        const bool vignetteWanted = (rt64_jfg_vignette.load(std::memory_order_relaxed) != 0) && (vignettePipeline != nullptr) &&
++        const bool vignetteWanted = !jfgxr::renderingEye() && (rt64_jfg_vignette.load(std::memory_order_relaxed) != 0) && (vignettePipeline != nullptr) &&
+             targetsPresent && (fbStorage->colorWriteDepthRead != nullptr) && !jfgPausedAny;
+         bool fogScene = false;
+         bool vignetteScene = false;
+@@ -1023,6 +1047,13 @@ namespace RT64 {
+             }
+ 
+             const InstanceDrawCall &drawCall = instanceDrawCallVector[i];
++            if(jfgxr::hudTarget(fbStorage->colorTarget)) {
++                const bool ui=drawCall.type==InstanceDrawCall::Type::FillRect ? drawCall.clearRect.xrHud :
++                    ((drawCall.type==InstanceDrawCall::Type::IndexedTriangles ||
++                      drawCall.type==InstanceDrawCall::Type::RawTriangles ||
++                      drawCall.type==InstanceDrawCall::Type::RegularRect) && drawCall.triangles.xrHud);
++                jfgxr::noteUiDraw(drawCall.xrMode,ui);
++            }
+             switch (drawCall.type) {
+             case InstanceDrawCall::Type::IndexedTriangles: 
+             case InstanceDrawCall::Type::RawTriangles:
+@@ -1073,6 +1104,8 @@ namespace RT64 {
+                 // JFG PORT: the pause screens are 4:3 pictures. Their 3D objects (the planets of the map) reach beyond the picture,
+                 // which in widescreen would show in the sides, so nothing is drawn there while paused.
+                 RenderRect drawScissor = triangles.scissor;
++                if (xrHud && triangles.xrHud) drawScissor = hudRect(drawScissor);
++                if (drawScissor.isEmpty()) continue;
+                 if (jfgPaused) {
+                     const int32_t pictureWidth = int32_t((uint64_t(fbStorage->colorTarget->height) * 4ULL) / 3ULL);
+                     const int32_t sideWidth = (int32_t(fbStorage->colorTarget->width) - pictureWidth) / 2;
+@@ -1096,6 +1129,7 @@ namespace RT64 {
+                 rasterParams.renderIndex = i;
+                 rasterParams.screenScale = triangles.screenScale;
+                 rasterParams.screenOffset = triangles.screenOffset;
++                rasterParams.padding.x = xrHud && triangles.xrHud ? 1 : 0;
+                 worker->commandList->setGraphicsPushConstants(0, &rasterParams);
+ 
+                 drawCallTriangles(drawCall);
+@@ -1122,7 +1156,9 @@ namespace RT64 {
+                 const auto &clearRect = drawCall.clearRect;
+                 RenderTarget *chosenTarget = (fbStorage->colorTarget != nullptr) ? fbStorage->colorTarget : fbStorage->depthTarget;
+                 bool rectCoversWholeTarget = (clearRect.rect.left == 0) && (clearRect.rect.top == 0) && (uint32_t(clearRect.rect.right) == chosenTarget->width) && (uint32_t(clearRect.rect.bottom) == chosenTarget->height);
+-                const RenderRect *clearRects = rectCoversWholeTarget ? nullptr : &clearRect.rect;
++                const RenderRect mappedRect = xrHud && clearRect.xrHud ? hudRect(clearRect.rect) : clearRect.rect;
++                if (mappedRect.isEmpty()) break;
++                const RenderRect *clearRects = rectCoversWholeTarget ? nullptr : &mappedRect;
+                 uint32_t clearRectCount = rectCoversWholeTarget ? 0 : 1;
+                 if (fbStorage->colorTarget != nullptr) {
+                     worker->commandList->clearColor(0, clearRect.color, clearRects, clearRectCount);
+@@ -1819,6 +1855,7 @@ namespace RT64 {
+ 
+         bool depthState = false;
+         worker->commandList->setFramebuffer(targetDrawCall.fbStorage->colorDepthWrite.get());
++
+         for (const auto &pair : targetDrawCall.sceneIndices) {
+ #       if RT_ENABLED
+             if (pair.second) {
+@@ -2106,6 +2143,7 @@ namespace RT64 {
+ 
+             for (uint32_t d = 0; (d < proj.gameCallCount) && (globalCallIndex < p.maxGameCall); d++) {
+                 const GameCall &call = proj.gameCalls[d];
++                instanceDrawCall.xrMode=call.callDesc.jfgXrMode;
+                 renderIndices.instanceIndex = call.callDesc.callIndex;
+                 renderIndices.faceIndicesStart = call.meshDesc.faceIndicesStart;
+                 renderIndices.rdpTileIndex = call.callDesc.tileIndex;
+@@ -2148,6 +2186,12 @@ namespace RT64 {
+                     }
+ 
+                     clearRect.rect = convertFixedRect(call.callDesc.rect, p.resolutionScale, p.fbWidth, invRatioScale, extOriginPercentage, horizontalMisalignment, call.callDesc.rectLeftOrigin, call.callDesc.rectRightOrigin);
++                    if(jfgxr::hudTarget(p.fbStorage->colorTarget))
++                        clearRect.rect=convertFixedRect(call.callDesc.rect,p.resolutionScale,p.fbWidth,1.f,0.f,0,
++                            G_EX_ORIGIN_NONE,G_EX_ORIGIN_NONE);
++                    clearRect.xrHud = call.callDesc.jfgXrMode==0 && p.fbStorage->colorTarget != nullptr &&
++                        !((clearRect.rect.right-clearRect.rect.left) >= int(framebuffer.viewport.width*.95f) &&
++                          (clearRect.rect.bottom-clearRect.rect.top) >= int(framebuffer.viewport.height*.95f));
+                 }
+                 else if (call.callDesc.extendedType != DrawExtendedType::None) {
+                     switch (call.callDesc.extendedType) {
+@@ -2221,6 +2265,11 @@ namespace RT64 {
+                         
+                         triangles.faceCount = call.callDesc.triangleCount;
+                         triangles.vertexTestZ = (vertexTestZCallIndex >= 0);
++                        // Depth-tested RDP sprites belong to the world. Only
++                        // flatten UI; never warp particles onto the HUD plane.
++                        triangles.xrHud = jfgxr::hudDraw(proj.jfgXrWorld,proj.usesViewport(),
++                            call.shaderDesc.otherMode.zCmp(),call.shaderDesc.otherMode.zUpd(),
++                            jfgxr::DrawMode(call.callDesc.jfgXrMode));
+                         triangles.postBlendDitherNoise = false;
+                         triangles.jfgTanHalfFovY = projTanHalfFovY;
+                         triangles.jfgNear = projNear;
+@@ -2297,6 +2346,29 @@ namespace RT64 {
+                         if (usesViewport) {
+                             triangles.scissor = viewportScissorIntersection(viewportClip, triangles.scissor);
+                         }
++                        if((triangles.xrHud || call.callDesc.jfgXrMode==uint32_t(jfgxr::DrawMode::ScreenEffect)) &&
++                            jfgxr::hudTarget(p.fbStorage->colorTarget)) {
++                            // Use native canvas coordinates for every HUD part:
++                            // text, 3D icons, textured panels, and their scissors.
++                            // The following vertex warp provides the eye aspect.
++                            triangles.screenScale={1.f,1.f};
++                            triangles.screenOffset=halfPixelOffset;
++                            if(proj.type==Projection::Type::Rectangle) {
++                                const auto rect=convertViewportRect(call.callDesc.rect,p.resolutionScale,p.fbWidth,
++                                    1.f,0.f,0.f,G_EX_ORIGIN_NONE,G_EX_ORIGIN_NONE);
++                                triangles.screenScale={rect.width/framebuffer.viewport.width,rect.height/framebuffer.viewport.height};
++                                triangles.screenOffset.x+=((rect.x+rect.width*.5f)-halfViewportSize.x)/halfViewportSize.x;
++                                triangles.screenOffset.y+=(halfViewportSize.y-(rect.y+rect.height*.5f))/halfViewportSize.y;
++                            }
++                            triangles.scissor=convertFixedRect(call.callDesc.scissorRect,p.resolutionScale,p.fbWidth,
++                                1.f,0.f,0,G_EX_ORIGIN_NONE,G_EX_ORIGIN_NONE);
++                            if(usesViewport) {
++                                const auto rect=drawData.rspViewports[proj.transformsIndex].rect(viewportClipRatios);
++                                const auto clip=convertViewportRect(rect,p.resolutionScale,p.fbWidth,
++                                    1.f,0.f,0.f,G_EX_ORIGIN_NONE,G_EX_ORIGIN_NONE);
++                                triangles.scissor=viewportScissorIntersection(clip,triangles.scissor);
++                            }
++                        }
+                         
+                         if (triangles.vertexTestZ && usesViewport) {
+                             instanceDrawCallVector[vertexTestZCallIndex].vertexTestZ.indexCount += call.callDesc.triangleCount * 3;
+@@ -2532,4 +2604,4 @@ namespace RT64 {
+         unsigned int im3dVertexCount;
+     };
+ };
+-*/
+\ No newline at end of file
++*/
+diff --git a/src/render/rt64_framebuffer_renderer_call.h b/src/render/rt64_framebuffer_renderer_call.h
+index 9c4b23b..fa9c12c 100644
+--- a/src/render/rt64_framebuffer_renderer_call.h
++++ b/src/render/rt64_framebuffer_renderer_call.h
+@@ -22,6 +22,7 @@ namespace RT64 {
+         };
+ 
+         Type type;
++        uint32_t xrMode = 0;
+ 
+         union {
+             struct {
+@@ -39,6 +40,7 @@ namespace RT64 {
+                 uint32_t indexStart;
+                 uint32_t faceCount;
+                 bool vertexTestZ : 1;
++                bool xrHud : 1;
+                 bool postBlendDitherNoise : 1;
+                 bool postBlendDitherNoiseNegative : 1;
+                 // JFG PORT: the draw's perspective projection, for the ambient occlusion pass (SsaoPS.hlsl): tan(half the vertical
+@@ -50,6 +52,7 @@ namespace RT64 {
+ 
+             struct {
+                 RenderRect rect;
++                bool xrHud;
+ 
+                 union {
+                     RenderColor color;
+@@ -66,4 +69,4 @@ namespace RT64 {
+ 
+         ~InstanceDrawCall() { }
+     };
+-};
+\ No newline at end of file
++};
+diff --git a/src/render/rt64_optimus.cpp b/src/render/rt64_optimus.cpp
+index 348aa52..3e935f9 100644
+--- a/src/render/rt64_optimus.cpp
++++ b/src/render/rt64_optimus.cpp
+@@ -4,11 +4,11 @@
+ 
+ #ifdef _WIN32
+ 
+-#include <Windows.h>
++#include <windows.h>
+ 
+ extern "C" {
+     // Exporting this flag indicates to the NVIDIA driver that it should prefer using the high performance device.
+-    _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
++    __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+ }
+ 
+ #endif
+\ No newline at end of file
 diff --git a/src/render/rt64_projection_processor.cpp b/src/render/rt64_projection_processor.cpp
-index 19c4535..3747fb7 100644
+index 19c4535..025a803 100644
 --- a/src/render/rt64_projection_processor.cpp
 +++ b/src/render/rt64_projection_processor.cpp
 @@ -1,3 +1,4 @@
@@ -82,17 +1808,367 @@ index 19c4535..3747fb7 100644
  //
  // RT64
  //
-@@ -152,6 +153,13 @@ namespace RT64 {
+@@ -56,8 +57,8 @@ namespace RT64 {
+             const GameIndices::Projection &sceneProj = scene.projections[i];
+             Workload &workload = p.workloadQueue->workloads[sceneProj.workloadIndex];
+             DrawData &drawData = workload.drawData;
+-            const FramebufferPair &fbPair = workload.fbPairs[sceneProj.fbPairIndex];
+-            const Projection &proj = fbPair.projections[sceneProj.projectionIndex];
++            FramebufferPair &fbPair = workload.fbPairs[sceneProj.fbPairIndex];
++            Projection &proj = fbPair.projections[sceneProj.projectionIndex];
+             const uint16_t viewportOrigin = drawData.viewportOrigins[proj.transformsIndex];
+             assert(proj.transformsIndex > 0);
+ 
+@@ -152,6 +153,28 @@ namespace RT64 {
                  prevProjTransform = projMatrix;
              }
  
-+            if (proj.type == Projection::Type::Perspective) {
++            // Small perspective viewports are HUD models (weapon icons, Tribal
++            // heads, etc.). Preserve their camera along with the 2D HUD.
++            const auto viewport = drawData.rspViewports[proj.transformsIndex].rect(
++                &drawData.viewportClipRatios[proj.transformsIndex * 4]);
++            proj.jfgXrWorld = proj.type == Projection::Type::Perspective &&
++                viewport.width(true, true) >= int(fbPair.colorImage.width * .8f) &&
++                viewport.height(true, true) >= int(workload.viFbSize[1] * .5f);
++            if (proj.jfgXrWorld) {
 +                float v[16], pmat[16];
-+                if (jfgxr::projection(v, pmat)) {
++                for(int row=0;row<4;row++)for(int col=0;col<4;col++)v[row*4+col]=viewMatrix[row][col];
++                proj.jfgXrWorld = jfgxr::projection(v, pmat);
++                if (proj.jfgXrWorld) {
 +                    for(int row=0;row<4;row++)for(int col=0;col<4;col++) { viewMatrix[row][col]=v[row*4+col];projMatrix[row][col]=pmat[row*4+col]; }
 +                    prevViewTransform=viewMatrix;prevProjTransform=projMatrix;
 +                }
 +            }
++            if(jfgxr::renderingEye() && !proj.jfgXrWorld) {
++                // HUD is a separate 4:3 canvas. Widening it to the portrait
++                // eye's aspect pushes text outside its scissor before warp.
++                projMatrix=drawData.projTransforms[proj.transformsIndex];
++                prevProjTransform=projMatrix;
++            }
              viewProjMatrix = hlslpp::mul(viewMatrix, projMatrix);
  
              interop::float4x4 &prevViewProjTransform = drawData.prevViewProjTransforms[proj.transformsIndex];
+@@ -172,4 +195,4 @@ namespace RT64 {
+ 
+         bufferUploader->submit(p.worker, uploads);
+     }
+-};
+\ No newline at end of file
++};
+diff --git a/src/render/rt64_raster_shader.cpp b/src/render/rt64_raster_shader.cpp
+index e8386bb..d3b7bb0 100644
+--- a/src/render/rt64_raster_shader.cpp
++++ b/src/render/rt64_raster_shader.cpp
+@@ -30,7 +30,7 @@
+ #include "shaders/BloomBlurPS.hlsl.spirv.h"
+ #include "shaders/BloomCompositePS.hlsl.spirv.h"
+ #include "shaders/SsaoBlurPS.hlsl.spirv.h"
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ #   include "shaders/RasterPSLibrary.hlsl.dxil.h"
+ #   include "shaders/RasterPSLibraryMS.hlsl.dxil.h"
+ #   include "shaders/RasterVSLibrary.hlsl.dxil.h"
+@@ -211,7 +211,7 @@ namespace RT64 {
+ #       endif
+         }
+         else {
+-#       if defined(_WIN32)
++#       if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+             RasterShaderText shaderText = generateShaderText(desc, useMSAA);
+ 
+             // Compile both shaders from text with the constants hard-coded in.
+@@ -378,6 +378,7 @@ namespace RT64 {
+             targetBlend.dstBlendAlpha = RenderBlend::ONE;
+         }
+ 
++
+         return c.device->createGraphicsPipeline(pipelineDesc);
+     }
+     
+@@ -429,7 +430,7 @@ namespace RT64 {
+ 
+     // RasterShaderUber
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+     const uint64_t RasterShaderUber::RasterVSLibraryHash = XXH3_64bits(RasterVSLibraryBlobDXIL, sizeof(RasterVSLibraryBlobDXIL));
+     const uint64_t RasterShaderUber::RasterPSLibraryHash = XXH3_64bits(RasterPSLibraryBlobDXIL, sizeof(RasterPSLibraryBlobDXIL));
+ #else
+@@ -448,7 +449,7 @@ namespace RT64 {
+         uint32_t PSBlobSize = 0;
+         const bool useMSAA = (multisampling.sampleCount > 1);
+         switch (shaderFormat) {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         case RenderShaderFormat::DXIL:
+             VSBlob = RasterVSDynamicBlobDXIL;
+             PSBlob = useMSAA ? RasterPSDynamicMSBlobDXIL : RasterPSDynamicBlobDXIL;
+@@ -529,7 +530,7 @@ namespace RT64 {
+         std::unique_ptr<RenderShader> postBlendSubPixelShader;
+         std::unique_ptr<RenderShader> postBlendSubNegativePixelShader;
+         switch (shaderFormat) {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         case RenderShaderFormat::DXIL:
+             postBlendAddPixelShader = device->createShader(PostBlendDitherNoiseAddPSBlobDXIL, std::size(PostBlendDitherNoiseAddPSBlobDXIL), "PSMain", shaderFormat);
+             postBlendSubPixelShader = device->createShader(PostBlendDitherNoiseSubPSBlobDXIL, std::size(PostBlendDitherNoiseSubPSBlobDXIL), "PSMain", shaderFormat);
+@@ -592,7 +593,7 @@ namespace RT64 {
+         std::unique_ptr<RenderShader> ssaoVertexShader;
+         std::unique_ptr<RenderShader> ssaoPixelShader;
+         switch (shaderFormat) {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         case RenderShaderFormat::DXIL:
+             ssaoVertexShader = device->createShader(FullScreenVSBlobDXIL, std::size(FullScreenVSBlobDXIL), "VSMain", shaderFormat);
+             ssaoPixelShader = useMSAA ? device->createShader(SsaoPSMSBlobDXIL, std::size(SsaoPSMSBlobDXIL), "PSMain", shaderFormat) : device->createShader(SsaoPSBlobDXIL, std::size(SsaoPSBlobDXIL), "PSMain", shaderFormat);
+@@ -633,7 +634,7 @@ namespace RT64 {
+         std::unique_ptr<RenderShader> fogPixelShader;
+         std::unique_ptr<RenderShader> vignettePixelShader;
+         switch (shaderFormat) {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         case RenderShaderFormat::DXIL:
+             fogPixelShader = useMSAA ? device->createShader(FogPSMSBlobDXIL, std::size(FogPSMSBlobDXIL), "PSMain", shaderFormat) : device->createShader(FogPSBlobDXIL, std::size(FogPSBlobDXIL), "PSMain", shaderFormat);
+             vignettePixelShader = device->createShader(VignettePSBlobDXIL, std::size(VignettePSBlobDXIL), "PSMain", shaderFormat);
+@@ -694,7 +695,7 @@ namespace RT64 {
+         std::unique_ptr<RenderShader> bloomCompositeShader;
+         std::unique_ptr<RenderShader> ssaoBlurShader;
+         switch (shaderFormat) {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         case RenderShaderFormat::DXIL:
+             bloomExtractShader = useMSAA ? device->createShader(BloomExtractPSMSBlobDXIL, std::size(BloomExtractPSMSBlobDXIL), "PSMain", shaderFormat) : device->createShader(BloomExtractPSBlobDXIL, std::size(BloomExtractPSBlobDXIL), "PSMain", shaderFormat);
+             bloomBlurShader = device->createShader(BloomBlurPSBlobDXIL, std::size(BloomBlurPSBlobDXIL), "PSMain", shaderFormat);
+diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
+index 890debb..a998cce 100644
+--- a/src/render/rt64_raster_shader_cache.cpp
++++ b/src/render/rt64_raster_shader_cache.cpp
+@@ -82,7 +82,7 @@ namespace RT64 {
+         this->ubershaderThreadCount = ubershaderThreadCount;
+ 
+ #ifdef ENABLE_OPTIMIZED_SHADER_GENERATION
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         shaderCompiler = std::make_unique<ShaderCompiler>();
+ #   endif
+ 
+diff --git a/src/render/rt64_shader_compiler.cpp b/src/render/rt64_shader_compiler.cpp
+index 82984ed..66d858d 100644
+--- a/src/render/rt64_shader_compiler.cpp
++++ b/src/render/rt64_shader_compiler.cpp
+@@ -3,7 +3,7 @@
+ // RT64
+ //
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ 
+ #include "rt64_shader_compiler.h"
+ 
+diff --git a/src/render/rt64_shader_compiler.h b/src/render/rt64_shader_compiler.h
+index e7c3377..aa81cc3 100644
+--- a/src/render/rt64_shader_compiler.h
++++ b/src/render/rt64_shader_compiler.h
+@@ -4,9 +4,9 @@
+ 
+ #pragma once
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ 
+-#include <Windows.h>
++#include <windows.h>
+ #include <dxcapi.h>
+ 
+ #include <string>
+diff --git a/src/render/rt64_shader_library.cpp b/src/render/rt64_shader_library.cpp
+index d1c5273..390e652 100644
+--- a/src/render/rt64_shader_library.cpp
++++ b/src/render/rt64_shader_library.cpp
+@@ -53,7 +53,7 @@
+ #include "shaders/Im3DPS.hlsl.spirv.h"
+ #include "shaders/PostProcessPS.hlsl.spirv.h"
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ #   include "shaders/FbChangesClearCS.hlsl.dxil.h"
+ #   include "shaders/FbChangesDrawColorPS.hlsl.dxil.h"
+ #   include "shaders/FbChangesDrawDepthPS.hlsl.dxil.h"
+@@ -153,7 +153,7 @@
+ #include "rt64_descriptor_sets.h"
+ #include "rt64_render_target.h"
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+ #   define CREATE_SHADER_INPUTS(DXIL_BLOB, SPIRV_BLOB, MSL_BLOB, ENTRY_NAME, SHADER_FORMAT)\
+         (SHADER_FORMAT == RenderShaderFormat::DXIL) ? DXIL_BLOB : (SHADER_FORMAT == RenderShaderFormat::SPIRV) ? SPIRV_BLOB : nullptr,\
+         (SHADER_FORMAT == RenderShaderFormat::DXIL) ? sizeof(DXIL_BLOB) : (SHADER_FORMAT == RenderShaderFormat::SPIRV) ? sizeof(SPIRV_BLOB) : 0,\
+@@ -645,7 +645,7 @@ namespace RT64 {
+         uint32_t RtCopyDepthToColorPSMSBlobSize = 0;
+         uint32_t RtCopyColorToDepthPSBlobSize = 0;
+         uint32_t RtCopyColorToDepthPSMSBlobSize = 0;
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(JFG_VULKAN_ONLY)
+         if (shaderFormat == RenderShaderFormat::DXIL) {
+             RtCopyDepthToColorPSBlob = RtCopyDepthToColorPSBlobDXIL;
+             RtCopyDepthToColorPSBlobSize = std::size(RtCopyDepthToColorPSBlobDXIL);
+diff --git a/src/render/rt64_transform_processor.cpp b/src/render/rt64_transform_processor.cpp
+index 3b91e75..2d2220e 100644
+--- a/src/render/rt64_transform_processor.cpp
++++ b/src/render/rt64_transform_processor.cpp
+@@ -3,6 +3,7 @@
+ //
+ 
+ #include "rt64_transform_processor.h"
++#include "jfg_xr.h"
+ 
+ #include "common/rt64_math.h"
+ #include "hle/rt64_game_frame.h"
+@@ -67,6 +68,23 @@ namespace RT64 {
+                     invTWorldTransforms.push_back(invTMatrix);
+                 }
+             }
++            if(jfgxr::renderingEye()) {
++                if(lerpWorldTransforms.empty()) {
++                    lerpWorldTransforms=drawData.worldTransforms;
++                    prevWorldTransforms=drawData.worldTransforms;
++                }
++                for(size_t t=0;t<drawData.worldTransforms.size();t++) {
++                    const uint32_t group=drawData.worldTransformGroups[t];
++                    float matrix[16];
++                    if(group<drawData.transformGroups.size() &&
++                        jfgxr::trackedTransform(drawData.transformGroups[group].matrixId,matrix)) {
++                        hlslpp::float4x4 transformed;
++                        for(int r=0;r<4;r++)for(int c=0;c<4;c++)transformed[r][c]=matrix[r*4+c];
++                        lerpWorldTransforms[t]=prevWorldTransforms[t]=transformed;
++                        invTWorldTransforms[t]=hlslpp::transpose(hlslpp::inverse(transformed));
++                    }
++                }
++            }
+         }
+     }
+     
+@@ -82,8 +100,9 @@ namespace RT64 {
+             Workload &workload = p.workloadQueue->workloads[w];
+             const DrawData &drawData = workload.drawData;
+             DrawBuffers &drawBuffers = workload.drawBuffers;
+-            const interop::float4x4 *worldMatrices = prevFrameValid ? drawData.lerpWorldTransforms.data() : drawData.worldTransforms.data();
+-            const interop::float4x4 *prevWorldMatrices = prevFrameValid ? drawData.prevWorldTransforms.data() : drawData.worldTransforms.data();
++            const bool useModified = prevFrameValid || jfgxr::renderingEye();
++            const interop::float4x4 *worldMatrices = useModified ? drawData.lerpWorldTransforms.data() : drawData.worldTransforms.data();
++            const interop::float4x4 *prevWorldMatrices = useModified ? drawData.prevWorldTransforms.data() : drawData.worldTransforms.data();
+             const interop::float4x4 *invTWorldMatrices = drawData.invTWorldTransforms.data();
+             std::pair<size_t, size_t> uploadRange = { 0, drawData.worldTransforms.size() };
+             uploads.emplace_back(BufferUploader::Upload{ worldMatrices, uploadRange, sizeof(interop::float4x4), RenderBufferFlag::STORAGE, { }, &drawBuffers.worldTransformsBuffer });
+diff --git a/src/shaders/RasterPS.hlsl b/src/shaders/RasterPS.hlsl
+index e7895c3..339aa47 100644
+--- a/src/shaders/RasterPS.hlsl
++++ b/src/shaders/RasterPS.hlsl
+@@ -11,6 +11,7 @@
+ #include "Library.hlsli"
+ #include "Random.hlsli"
+ #include "TextureSampler.hlsli"
++#include "XrHud.hlsli"
+ 
+ [[vk::push_constant]] ConstantBuffer<RasterParams> gConstants : register(b0, space0);
+ 
+@@ -113,12 +114,9 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
+     
+     float2 ddxVertexUV = ddx(vertexUV);
+     float2 ddyVertexUV = ddy(vertexUV);
+-    float2 lowResUV = vertexUV;
+-    if (!renderFlagUpscale2D(rp.flags)) {
+-        float2 screenPos = floor(vertexPosition.xy);
+-        screenPos.x += FbParams.horizontalMisalignment;
+-        lowResUV -= fmod(screenPos.xy, FbParams.resolutionScale.yy) * float2(ddxVertexUV.x, ddyVertexUV.y);
+-    }
++    const float2 lowResUV = rasterTextureUV(vertexUV, ddxVertexUV, ddyVertexUV,
++        vertexPosition.xy, FbParams.resolutionScale, FbParams.horizontalMisalignment,
++        renderFlagUpscale2D(rp.flags));
+     
+     int tileIndex0 = 0;
+     int tileIndex1 = 1;
+@@ -310,4 +308,4 @@ void PSMain(
+     pixelColor = resultColor;
+     pixelAlpha = resultAlpha;
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/src/shaders/RasterVS.hlsl b/src/shaders/RasterVS.hlsl
+index 74b1fa0..1d4dbc1 100644
+--- a/src/shaders/RasterVS.hlsl
++++ b/src/shaders/RasterVS.hlsl
+@@ -8,6 +8,7 @@
+ 
+ #include "FbRendererCommon.hlsli"
+ #include "Library.hlsli"
++#include "XrHud.hlsli"
+ 
+ [[vk::push_constant]] ConstantBuffer<RasterParams> gConstants : register(b0, space0);
+ 
+@@ -33,6 +34,9 @@ LIBRARY_EXPORT void RasterVS(const RenderParams rp, in float4 iPosition, in floa
+         ndcPos.z = instanceRDPParams[instanceIndex].primDepth.x * ndcPos.w;
+     }
+ 
++    if (gConstants.padding.x == 1) {
++        ndcPos = xrHudPosition(ndcPos, gConstants);
++    }
+     oPosition = ndcPos;
+     oUV = iUV;
+     oSmoothColor = iColor;
+@@ -66,4 +70,4 @@ void VSMain(
+ #endif
+     RasterVS(getRenderParams(), iPosition, iUV, iColor, oPosition, oUV, oSmoothColor, oFlatColor);
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/src/shared/rt64_raster_params.h b/src/shared/rt64_raster_params.h
+index 0a5c332..d270454 100644
+--- a/src/shared/rt64_raster_params.h
++++ b/src/shared/rt64_raster_params.h
+@@ -14,7 +14,9 @@ namespace interop {
+         uint3 padding;
+         float2 screenScale;
+         float2 screenOffset;
++        // Explicit rows avoid CPU/HLSL matrix-major layout ambiguity.
++        float4 xrHudRows[4];
+     };
+ #ifdef HLSL_CPU
+ };
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/src/shaders/XrHud.hlsli b/src/shaders/XrHud.hlsli
+new file mode 100644
+index 0000000..50e19c1
+--- /dev/null
++++ b/src/shaders/XrHud.hlsli
+@@ -0,0 +1,26 @@
++#ifndef RT64_XR_HUD_HLSLI
++#define RT64_XR_HUD_HLSLI
++#include "shared/rt64_raster_params.h"
++
++// XR UI opts into continuous UVs through the regular upscale2D render flag.
++float2 rasterTextureUV(float2 uv, float2 derivativeX, float2 derivativeY,
++                      float2 pixel, float2 scale, float misalignment, bool upscale2D) {
++    if (!upscale2D) {
++        float2 screen = floor(pixel);
++        screen.x += misalignment;
++        uv -= fmod(screen, scale.yy) * float2(derivativeX.x, derivativeY.y);
++    }
++    return uv;
++}
++
++float4 xrHudPosition(float4 position, RasterParams params) {
++    const float depth = saturate(position.z / max(abs(position.w), 0.00001f));
++    float4 projected = position.x * params.xrHudRows[0] +
++                       position.y * params.xrHudRows[1] +
++                       position.w * params.xrHudRows[3];
++    // Overlay depth is independent of world depth, while retaining the source
++    // ordering inside 3D HUD models instead of putting every face at z = 0.
++    projected.z = (0.0001f + depth * 0.0001f) * projected.w;
++    return projected;
++}
++#endif

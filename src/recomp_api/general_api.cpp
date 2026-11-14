@@ -10,7 +10,7 @@
 
 #include "config/config.hpp"
 #include "renderer/renderer.hpp"
-#include "ui/recomp_ui.h"
+#include "runtime/xr_compat.hpp"
 #include "common.hpp"
 
 extern "C" void recomp_get_window_resolution(uint8_t* rdram, recomp_context* ctx) {

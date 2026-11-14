@@ -62,6 +62,15 @@ bool aim_view_key(const char* key, int* preset_value) {
 }
 
 void apply_option(const char* key, int value) {
+    if (std::strcmp(key, "xr_turn_mode") == 0) { g.xr_turn_mode = std::clamp(value, 0, 2); return; }
+    if (std::strcmp(key, "xr_snap_angle") == 0) { g.xr_snap_angle = std::clamp(value, 15, 90); return; }
+    if (std::strcmp(key, "xr_turn_speed") == 0) { g.xr_turn_speed = std::clamp(value, 15, 360); return; }
+    if (std::strcmp(key, "xr_weapon_x") == 0) { g.xr_weapon_x = std::clamp(value, -300, 300); return; }
+    if (std::strcmp(key, "xr_weapon_y") == 0) { g.xr_weapon_y = std::clamp(value, -300, 300); return; }
+    if (std::strcmp(key, "xr_weapon_z") == 0) { g.xr_weapon_z = std::clamp(value, -300, 300); return; }
+    if (std::strcmp(key, "xr_weapon_pitch") == 0) { g.xr_weapon_pitch = std::clamp(value, -180, 180); return; }
+    if (std::strcmp(key, "xr_weapon_yaw") == 0) { g.xr_weapon_yaw = std::clamp(value, -180, 180); return; }
+    if (std::strcmp(key, "xr_weapon_roll") == 0) { g.xr_weapon_roll = std::clamp(value, -180, 180); return; }
     if (apply_mod_option(key, value)) return; // moved to the official mods
     if (std::strcmp(key, "show_fps") == 0) g.show_fps = value != 0;
     else if (std::strcmp(key, "show_level") == 0) g.show_level = value != 0;
@@ -99,7 +108,7 @@ void apply_option(const char* key, int value) {
     else if (std::strcmp(key, "fov") == 0) g.fov = std::clamp(value, 75, 140);
     else if (std::strcmp(key, "hit_flash") == 0) g.hit_flash = std::clamp(value, 0, 100);
     else if (std::strcmp(key, "shadow_opacity") == 0) g.shadow_opacity = std::clamp(value, 0, 200);
-    else if (std::strcmp(key, "language") == 0) g.language = std::clamp(value, 0, 4);
+    else if (std::strcmp(key, "language") == 0) g.language = 0; // English only
     else if (std::strcmp(key, "vignette") == 0) g.vignette = value != 0;
     else if (std::strcmp(key, "vignette_strength") == 0) g.vignette_strength = std::clamp(value, 0, 100);
     else if (std::strcmp(key, "vignette_size") == 0) g.vignette_size = std::clamp(value, 0, 90);
@@ -177,12 +186,20 @@ void load_options() {
     if (const char* env = std::getenv("JFG_FRAME_RATE")) apply_option("frame_rate", std::atoi(env)); // 2 = 60 + Smooth Motion
     if (const char* env = std::getenv("JFG_INTERP_LIMIT")) apply_option("interp_limit", std::atoi(env)); // with JFG_FRAME_RATE=2
     if (const char* env = std::getenv("JFG_SMOOTH_MOTION")) apply_option("smooth_motion", std::atoi(env)); // 0, 1 (monitor), 60..240
+    if (const char* env = std::getenv("JFG_XR_TURN_MODE")) {
+        if (std::strcmp(env, "smooth") == 0) g.xr_turn_mode = 1;
+        else if (std::strcmp(env, "off") == 0) g.xr_turn_mode = 2;
+        else if (std::strcmp(env, "snap") == 0) g.xr_turn_mode = 0;
+    }
+    if (const char* env = std::getenv("JFG_XR_TURN_SPEED")) apply_option("xr_turn_speed", std::atoi(env));
     push_render_options();
 }
 
 std::string options_text(const State& s) {
     std::string out;
     char buf[512];
+    std::snprintf(buf, sizeof(buf), "xr_turn_mode=%d\nxr_snap_angle=%d\nxr_turn_speed=%d\n", s.xr_turn_mode, s.xr_snap_angle, s.xr_turn_speed); out += buf;
+    std::snprintf(buf, sizeof(buf), "xr_weapon_x=%d\nxr_weapon_y=%d\nxr_weapon_z=%d\nxr_weapon_pitch=%d\nxr_weapon_yaw=%d\nxr_weapon_roll=%d\n", s.xr_weapon_x, s.xr_weapon_y, s.xr_weapon_z, s.xr_weapon_pitch, s.xr_weapon_yaw, s.xr_weapon_roll); out += buf;
     std::snprintf(buf, sizeof(buf), "start_skips_cutscenes=%d\n", s.start_skips_cutscenes ? 1 : 0); out += buf;
     std::snprintf(buf, sizeof(buf), "auto_save=%d\nauto_save_minutes=%d\nsave_notification=%d\nkeep_area_progress=%d\n", s.auto_save ? 1 : 0, s.auto_save_minutes, s.save_notification ? 1 : 0, s.keep_area_progress ? 1 : 0); out += buf;
     std::snprintf(buf, sizeof(buf), "show_fps=%d\nwidescreen=%d\nframe_rate=%d\nsmooth_motion=%d\n", s.show_fps ? 1 : 0, s.widescreen ? 1 : 0, s.frame_rate, s.smooth_motion); out += buf;
